@@ -1,0 +1,74 @@
+groups:
+- name: iptv_alerts
+  rules:
+  - alert: HighCpuUsage
+    expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High CPU usage on {{ $labels.instance }}"
+      description: "CPU usage is {{ $value }}% for more than 5 minutes."
+
+  - alert: HighMemoryUsage
+    expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 85
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High Memory usage on {{ $labels.instance }}"
+      description: "Memory usage is {{ $value }}% for more than 5 minutes."
+
+  - alert: HighNetworkLatency
+    expr: irate(node_network_receive_errs_total[2m]) > 100
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: "High network errors on {{ $labels.instance }}"
+      description: "Network errors detected: {{ $value }} errors per second."
+
+  - alert: SrsDown
+    expr: srs_up == 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "SRS server is down on {{ $labels.instance }}"
+      description: "SRS instance is not responding to metrics scraping."
+
+  - alert: NginxDown
+    expr: nginx_up == 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Nginx server is down on {{ $labels.instance }}"
+      description: "Nginx instance is not responding to metrics scraping."
+
+  - alert: HighPacketLoss
+    expr: srs_server_packet_loss_ratio > 0.01
+    for: 3m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High packet loss on {{ $labels.instance }}"
+      description: "Packet loss ratio is {{ $value }}% exceeding 1% threshold."
+
+  - alert: HighConnectionCount
+    expr: srs_server_connections > 40000
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High connection count on {{ $labels.instance }}"
+      description: "Current connections: {{ $value }}, approaching 50000 limit."
+
+  - alert: DiskSpaceLow
+    expr: (node_filesystem_avail_bytes * 100 / node_filesystem_size_bytes) < 10
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Low disk space on {{ $labels.instance }} {{ $labels.mountpoint }}"
+      description: "Only {{ $value }}% disk space remaining."
