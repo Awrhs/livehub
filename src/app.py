@@ -1,11 +1,14 @@
 import os
 import logging
+from datetime import datetime, timezone
+
 import psutil
-from flask import Flask, Flask, request, jsonify, send_file, redirect
+from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 from prometheus_client import generate_latest, Counter, Gauge, Histogram, CONTENT_TYPE_LATEST
 
 from src.config import Config
+from src.security import safe_media_path, validate_safe_name
 from src.auth.jwt_auth import JWTAuthenticator
 from src.streaming.profile_manager import ProfileManager
 from src.streaming.hls_generator import HLSGenerator, HLSPlayListChecker
@@ -19,8 +22,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+Config.validate()
+
 app = Flask(__name__)
-CORS(app)
+if Config.ALLOWED_ORIGINS:
+    CORS(app, origins=Config.ALLOWED_ORIGINS)
+else:
+    CORS(app)
 
 TRANSCODE_CONFIG_PATH = os.environ.get(
     'TRANSCODE_CONFIG_PATH',
@@ -51,6 +59,11 @@ STREAM_BANDWIDTH = Gauge('iptv_stream_bandwidth_bits', 'Stream bandwidth in bits
 def get_master_playlist(stream_id):
     REQUEST_COUNT.labels(method=request.method, endpoint='/api/stream/playlist').inc()
 
+    try:
+        stream_id = validate_safe_name(stream_id, 'stream_id')
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
     token = request.args.get('token')
     if Config.ENABLE_AUTH:
         client_ip = request.remote_addr
@@ -67,6 +80,12 @@ def get_master_playlist(stream_id):
 @authenticator.auth_required
 def get_media_playlist(stream_id, profile):
     REQUEST_COUNT.labels(method=request.method, endpoint='/api/stream/media').inc()
+
+    try:
+        stream_id = validate_safe_name(stream_id, 'stream_id')
+        profile = validate_safe_name(profile, 'profile')
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
 
     playlist_path = hls_generator.get_playlist_path(stream_id, profile)
 
@@ -88,7 +107,12 @@ def get_media_playlist(stream_id, profile):
 def get_ts_segment(stream_id, ts_file):
     REQUEST_COUNT.labels(method=request.method, endpoint='/api/stream/ts').inc()
 
-    ts_path = os.path.join(Config.HLS_BASE_PATH, stream_id, ts_file)
+    try:
+        stream_id = validate_safe_name(stream_id, 'stream_id')
+        ts_file = validate_safe_name(ts_file, 'ts_file')
+        ts_path = safe_media_path(Config.HLS_BASE_PATH, stream_id, ts_file)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
 
     if not os.path.exists(ts_path):
         return jsonify({'error': 'Segment not found'}), 404
@@ -104,7 +128,12 @@ def get_ts_segment(stream_id, ts_file):
 def get_vod_playlist(vod_id):
     REQUEST_COUNT.labels(method=request.method, endpoint='/api/vod').inc()
 
-    vod_path = os.path.join(Config.VOD_BASE_PATH, f"{vod_id}.m3u8")
+    try:
+        vod_id = validate_safe_name(vod_id, 'vod_id')
+        vod_path = safe_media_path(Config.VOD_BASE_PATH, f"{vod_id}.m3u8")
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
     if not os.path.exists(vod_path):
         return jsonify({'error': 'VOD not found'}), 404
 
@@ -118,6 +147,11 @@ def get_vod_playlist(vod_id):
 @authenticator.auth_required
 def get_timeshift(channel_id):
     REQUEST_COUNT.labels(method=request.method, endpoint='/api/timeshift').inc()
+
+    try:
+        channel_id = validate_safe_name(channel_id, 'channel_id')
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
 
     start_time = request.args.get('start')
     duration = request.args.get('duration', '3600')
@@ -135,16 +169,23 @@ def get_timeshift(channel_id):
             return jsonify({'error': 'Timeshift segment not found'}), 404
 
         return send_file(segment_path, mimetype='video/MP2T')
+    except ValueError:
+        return jsonify({'error': 'Invalid timeshift parameters'}), 400
     except Exception as e:
         logger.error(f"Timeshift error: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Timeshift request failed'}), 500
 
 
 @app.route('/api/recommend-profile', methods=['POST'])
 def recommend_profile():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     client_id = request.remote_addr
-    bandwidth = data.get('bandwidth', 0)
+    try:
+        bandwidth = int(data.get('bandwidth', 0))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Invalid bandwidth'}), 400
+    if bandwidth < 0:
+        return jsonify({'error': 'Invalid bandwidth'}), 400
 
     bitrate_adaptor.update_bandwidth(client_id, bandwidth)
     recommended = bitrate_adaptor.recommend_profile(
@@ -161,6 +202,11 @@ def recommend_profile():
 
 @app.route('/api/cluster/select-node/<stream_id>')
 def select_node(stream_id):
+    try:
+        stream_id = validate_safe_name(stream_id, 'stream_id')
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
     node = load_balancer.select_node_least_conn()
     if not node:
         return jsonify({'error': 'No healthy nodes available'}), 503
@@ -183,7 +229,7 @@ def health():
         'cpu_usage': cpu_percent,
         'memory_usage': memory.percent,
         'active_connections': int(active_conns),
-        'timestamp': None
+        'timestamp': datetime.now(timezone.utc).isoformat()
     })
 
 

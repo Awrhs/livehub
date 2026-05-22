@@ -1,19 +1,10 @@
-FROM ubuntu:22.04
+FROM python:3.11-slim
 
 LABEL maintainer="IPTV Streaming Cluster"
 
-ENV DEBIAN_FRONTEND=noninteractive
-
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
-    nginx \
-    python3 \
-    python3-pip \
-    git \
-    build-essential \
     && rm -rf /var/lib/apt/lists/*
-
-RUN ln -s /usr/bin/python3 /usr/bin/python
 
 WORKDIR /app
 
@@ -24,6 +15,6 @@ COPY . .
 
 RUN mkdir -p logs /mnt/hls /mnt/vod /mnt/timeshift
 
-EXPOSE 1935 1936 8080 8000 1985
+EXPOSE 8000
 
-CMD ["./scripts/start.sh"]
+CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:8000", "-t", "120", "--worker-class", "gevent", "src.app:init_app()", "--access-logfile", "-", "--error-logfile", "-"]

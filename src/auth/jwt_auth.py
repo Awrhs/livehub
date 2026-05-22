@@ -24,10 +24,12 @@ class JWTAuthenticator:
                 return f(*args, **kwargs)
 
             auth_header = request.headers.get('Authorization')
-            if not auth_header or not auth_header.startswith('Bearer '):
+            token = request.args.get('token')
+            if auth_header and auth_header.startswith('Bearer '):
+                token = auth_header.split(' ', 1)[1]
+            if not token:
                 return jsonify({'error': 'Missing or invalid authorization token'}), 401
 
-            token = auth_header.split(' ')[1]
             payload = self.verify_token(token)
             if not payload:
                 return jsonify({'error': 'Invalid or expired token'}), 401
@@ -50,4 +52,5 @@ class JWTAuthenticator:
         payload = self.verify_token(token)
         if not payload:
             return False
-        return payload.get('stream_id') == stream_id
+        token_ip = payload.get('client_ip')
+        return payload.get('stream_id') == stream_id and (not token_ip or token_ip == client_ip)

@@ -3,6 +3,8 @@ import logging
 from typing import List, Optional, Dict
 from dataclasses import dataclass
 
+from src.security import safe_media_path, validate_safe_name
+
 logger = logging.getLogger(__name__)
 
 
@@ -49,10 +51,12 @@ class HLSGenerator:
 
     def write_playlist(self, content: str, stream_id: str, filename: str) -> bool:
         try:
-            full_path = os.path.join(self.base_path, stream_id)
+            stream_id = validate_safe_name(stream_id, 'stream_id')
+            filename = validate_safe_name(filename, 'filename')
+            full_path = safe_media_path(self.base_path, stream_id)
             os.makedirs(full_path, exist_ok=True)
 
-            output_path = os.path.join(full_path, filename)
+            output_path = safe_media_path(full_path, filename)
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(content)
 
@@ -63,9 +67,11 @@ class HLSGenerator:
             return False
 
     def get_playlist_path(self, stream_id: str, profile: str = None) -> str:
+        stream_id = validate_safe_name(stream_id, 'stream_id')
         if profile:
-            return os.path.join(self.base_path, stream_id, f"{profile}.m3u8")
-        return os.path.join(self.base_path, f"{stream_id}.m3u8")
+            profile = validate_safe_name(profile, 'profile')
+            return safe_media_path(self.base_path, stream_id, f"{profile}.m3u8")
+        return safe_media_path(self.base_path, f"{stream_id}.m3u8")
 
 
 class HLSPlayListChecker:

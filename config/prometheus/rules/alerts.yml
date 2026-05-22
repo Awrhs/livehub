@@ -29,7 +29,7 @@ groups:
       description: "Network errors detected: {{ $value }} errors per second."
 
   - alert: SrsDown
-    expr: srs_up == 0
+    expr: up{job="srs"} == 0
     for: 1m
     labels:
       severity: critical
@@ -38,7 +38,7 @@ groups:
       description: "SRS instance is not responding to metrics scraping."
 
   - alert: NginxDown
-    expr: nginx_up == 0
+    expr: up{job="nginx"} == 0
     for: 1m
     labels:
       severity: critical

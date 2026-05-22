@@ -2,6 +2,8 @@ import os
 import json
 from typing import Dict, Any
 
+DEFAULT_JWT_SECRET = 'your-secret-key-change-in-production'
+
 
 class Config:
     SRS_HOST = os.getenv('SRS_HOST', '127.0.0.1')
@@ -23,12 +25,21 @@ class Config:
     REDIS_URL = os.getenv('REDIS_URL', 'redis://127.0.0.1:6379/0')
 
     ENABLE_AUTH = os.getenv('ENABLE_AUTH', 'true').lower() == 'true'
-    JWT_SECRET = os.getenv('JWT_SECRET', 'your-secret-key-change-in-production')
+    JWT_SECRET = os.getenv('JWT_SECRET', DEFAULT_JWT_SECRET)
+    ALLOWED_ORIGINS = [
+        origin.strip() for origin in os.getenv('ALLOWED_ORIGINS', '').split(',')
+        if origin.strip()
+    ]
 
     CLUSTER_NODES = [
         node.strip() for node in os.getenv('CLUSTER_NODES', '').split(',')
         if node.strip()
     ] or ['127.0.0.1']
+
+    @classmethod
+    def validate(cls):
+        if cls.ENABLE_AUTH and cls.JWT_SECRET == DEFAULT_JWT_SECRET:
+            raise RuntimeError('JWT_SECRET must be changed when ENABLE_AUTH=true')
 
     @classmethod
     def load_transcode_profiles(cls, config_path: str) -> Dict[str, Any]:
