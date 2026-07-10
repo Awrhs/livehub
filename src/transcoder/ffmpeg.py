@@ -1,11 +1,21 @@
 import subprocess
 import logging
 import os
+import time
 from typing import List, Dict, Optional
 from src.streaming.profile_manager import TranscodeProfile
 from src.config import Config
+from src.security import validate_input_url, validate_output_path
+from src.transcoder.process_manager import (
+    NonBlockingFFmpegProcess,
+    get_process_manager,
+    ProcessStatus
+)
 
 logger = logging.getLogger(__name__)
+
+# Get global process manager for concurrency control
+process_manager = get_process_manager()
 
 
 class FFmpegTranscoder:
@@ -14,6 +24,7 @@ class FFmpegTranscoder:
 
     def build_command(self, input_url: str, output_urls: Dict[str, str],
                      profiles: List[TranscodeProfile]) -> List[str]:
+        validate_input_url(input_url)
         cmd = [self.ffmpeg_path, '-i', input_url]
 
         for profile in profiles:
@@ -38,6 +49,8 @@ class FFmpegTranscoder:
 
     def build_hls_transcode_command(self, input_url: str, output_dir: str,
                                      profile: TranscodeProfile, segment_duration: int = 2) -> List[str]:
+        validate_input_url(input_url)
+        validate_output_path(output_dir)
         os.makedirs(output_dir, exist_ok=True)
         output_pattern = os.path.join(output_dir, f'{profile.name}_%05d.ts')
 
@@ -70,33 +83,47 @@ class FFmpegTranscoder:
 
         return cmd
 
-    def start_transcode(self, cmd: List[str]) -> subprocess.Popen:
-        logger.info(f"Starting FFmpeg: {' '.join(cmd)}")
-        return subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            universal_newlines=True
-        )
+    def start_transcode(self, cmd: List[str], stream_id: str = None) -> Optional[NonBlockingFFmpegProcess]:
+        """
+        Start a FFmpeg transcode process with non-blocking output handling.
 
-    def check_transcode_health(self, process: subprocess.Popen) -> bool:
-        if process.poll() is not None:
-            stdout, stderr = process.communicate()
-            logger.error(f"FFmpeg exited with code {process.returncode}")
-            logger.error(f"Stderr: {stderr}")
+        Uses global process manager for concurrency control.
+        Returns None if concurrency limit would be exceeded.
+        """
+        process_id = stream_id or f"transcode_{int(time.time() * 1000)}"
+
+        # Define exit callback for logging
+        def on_exit(pid: str, exit_code: int):
+            if exit_code == 0:
+                logger.info(f"Transcode process {pid} completed successfully")
+            else:
+                logger.error(f"Transcode process {pid} failed with exit code {exit_code}")
+
+        return process_manager.start_process(process_id, cmd, on_exit=on_exit)
+
+    def check_transcode_health(self, process: NonBlockingFFmpegProcess) -> bool:
+        """Check if a FFmpeg process is still running healthy"""
+        if process is None:
             return False
+
+        if not process.is_running():
+            info = process.get_info()
+            recent_output = process.get_recent_output(10)
+            logger.error(f"FFmpeg exited with code {info.exit_code}")
+            if recent_output:
+                logger.error(f"Recent stderr output:\n{''.join(recent_output)}")
+            return False
+
         return True
 
-    def stop_transcode(self, process: subprocess.Popen):
-        if process and process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
-            logger.info("FFmpeg transcoder stopped")
+    def stop_transcode(self, process: NonBlockingFFmpegProcess):
+        """Gracefully stop a FFmpeg process"""
+        if process and process.is_running():
+            process.stop(timeout=10)
+            logger.info(f"FFmpeg transcoder PID {process.get_pid()} stopped")
 
     def probe_stream_info(self, input_url: str) -> Optional[Dict]:
+        validate_input_url(input_url)
         probe_cmd = [
             self.ffmpeg_path.replace('ffmpeg', 'ffprobe'),
             '-v', 'quiet',
@@ -118,23 +145,55 @@ class FFmpegTranscoder:
 
 
 class BitrateAdaptor:
-    def __init__(self):
-        self.bandwidth_history: Dict[str, List[int]] = {}
+    def __init__(self, history_ttl_seconds: int = 3600):
+        # Store tuples of (bandwidth, timestamp) for TTL-based cleanup
+        self.bandwidth_history: Dict[str, List[tuple[int, float]]] = {}
+        self.history_ttl = history_ttl_seconds
+        self._last_cleanup = time.time()
+        self._cleanup_interval = 600  # 10 minutes
 
     def update_bandwidth(self, client_id: str, bandwidth: int):
         if client_id not in self.bandwidth_history:
             self.bandwidth_history[client_id] = []
 
         history = self.bandwidth_history[client_id]
-        history.append(bandwidth)
+        history.append((bandwidth, time.time()))
+
+        # Keep only last 10 entries per client
         if len(history) > 10:
             history.pop(0)
+
+        # Periodically cleanup expired client records
+        self._maybe_cleanup()
+
+    def _maybe_cleanup(self):
+        """Clean up expired client records to prevent memory leaks"""
+        now = time.time()
+        if now - self._last_cleanup < self._cleanup_interval:
+            return
+
+        self._last_cleanup = now
+        expired_time = now - self.history_ttl
+
+        # Find clients whose last update was longer than TTL ago
+        expired_clients = [
+            cid for cid, hist in self.bandwidth_history.items()
+            if hist and hist[-1][1] < expired_time
+        ]
+
+        for cid in expired_clients:
+            del self.bandwidth_history[cid]
+
+        if expired_clients:
+            logger.info(f"Cleaned up {len(expired_clients)} expired client bandwidth records")
 
     def get_average_bandwidth(self, client_id: str) -> int:
         history = self.bandwidth_history.get(client_id, [])
         if not history:
-            return 5000000
-        return sum(history) // len(history)
+            return 5000000  # Default: 5 Mbps
+        # Extract just the bandwidth values from tuples
+        bandwidth_values = [b for b, _ in history]
+        return sum(bandwidth_values) // len(bandwidth_values)
 
     def recommend_profile(self, client_id: str, available_profiles: List[str]) -> str:
         avg_bw = self.get_average_bandwidth(client_id)

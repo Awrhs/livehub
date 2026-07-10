@@ -50,8 +50,18 @@ class ProfileManager:
                     profile=params['profile']
                 )
             logger.info(f"Loaded {len(self.profiles)} transcode profiles")
+        except FileNotFoundError as e:
+            logger.critical(f"Transcode profile config file not found: {self.config_path}", exc_info=True)
+            raise RuntimeError(f"Transcode profile config file not found: {self.config_path}") from e
+        except json.JSONDecodeError as e:
+            logger.critical(f"Invalid JSON in transcode profile config: {e}", exc_info=True)
+            raise RuntimeError(f"Invalid JSON in transcode profile config: {e}") from e
+        except KeyError as e:
+            logger.critical(f"Missing required field in transcode profile: {e}", exc_info=True)
+            raise RuntimeError(f"Missing required field in transcode profile: {e}") from e
         except Exception as e:
-            logger.error(f"Failed to load transcode profiles: {e}")
+            logger.critical(f"Failed to load transcode profiles: {e}", exc_info=True)
+            raise RuntimeError(f"Failed to load transcode profiles: {e}") from e
 
     def get_profile(self, name: str) -> Optional[TranscodeProfile]:
         return self.profiles.get(name)
@@ -63,11 +73,12 @@ class ProfileManager:
         return list(self.profiles.keys())
 
     def auto_select_profile(self, bandwidth: int) -> str:
-        if bandwidth >= 5000000:
+        # Note: Keep thresholds in sync with BitrateAdaptor.recommend_profile in ffmpeg.py
+        if bandwidth >= 4500000:  # 4.5 Mbps for 1080p
             return '1080p'
-        elif bandwidth >= 2500000:
+        elif bandwidth >= 2000000:  # 2 Mbps for 720p
             return '720p'
-        elif bandwidth >= 800000:
+        elif bandwidth >= 800000:  # 800 kbps for 480p
             return '480p'
         else:
             return list(self.profiles.keys())[0] if self.profiles else '480p'

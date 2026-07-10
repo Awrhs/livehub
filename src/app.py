@@ -12,6 +12,7 @@ from src.security import safe_media_path, validate_safe_name
 from src.auth.jwt_auth import JWTAuthenticator
 from src.streaming.profile_manager import ProfileManager
 from src.streaming.hls_generator import HLSGenerator, HLSPlayListChecker
+from src.streaming.cache import get_ts_cache
 from src.transcoder.ffmpeg import FFmpegTranscoder, BitrateAdaptor
 from src.cluster.load_balancer import LoadBalancer
 from src.timeshift.recorder import TimeshiftRecorder
@@ -21,6 +22,9 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Initialize TS segment cache
+ts_cache = get_ts_cache(max_size_mb=500)
 
 Config.validate()
 
@@ -114,13 +118,25 @@ def get_ts_segment(stream_id, ts_file):
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
 
+    # Try cache first
+    cached_content = ts_cache.get(ts_path)
+    if cached_content is not None:
+        ACTIVE_CONNECTIONS.inc()
+        return cached_content, 200, {'Content-Type': 'video/MP2T', 'X-Cache': 'HIT'}
+
     if not os.path.exists(ts_path):
         return jsonify({'error': 'Segment not found'}), 404
 
     if not playlist_checker.verify_ts_file(ts_path):
         return jsonify({'error': 'Corrupted segment'}), 500
 
-    return send_file(ts_path, mimetype='video/MP2T')
+    # Read file and cache for next request
+    with open(ts_path, 'rb') as f:
+        content = f.read()
+
+    ts_cache.put(ts_path, content)
+
+    return content, 200, {'Content-Type': 'video/MP2T', 'X-Cache': 'MISS'}
 
 
 @app.route('/api/vod/<vod_id>')
@@ -164,11 +180,11 @@ def get_timeshift(channel_id):
         start_dt = datetime.fromtimestamp(int(start_time))
         duration = int(duration)
 
-        segment_path = timeshift_recorder.get_record_segment(channel_id, start_dt, duration)
-        if not segment_path:
+        segment_content = timeshift_recorder.get_record_segment(channel_id, start_dt, duration)
+        if not segment_content:
             return jsonify({'error': 'Timeshift segment not found'}), 404
 
-        return send_file(segment_path, mimetype='video/MP2T')
+        return segment_content, 200, {'Content-Type': 'video/MP2T'}
     except ValueError:
         return jsonify({'error': 'Invalid timeshift parameters'}), 400
     except Exception as e:

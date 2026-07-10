@@ -33,6 +33,7 @@ pip install -q -r requirements.txt
 
 # Start backend API with gunicorn
 echo "Starting backend API server..."
-gunicorn -w 4 -b 0.0.0.0:8000 -t 120 --worker-class gevent src.app:init_app() --access-logfile logs/api_access.log --error-logfile logs/api_error.log
+cd ..
+gunicorn -c gunicorn_config.py src.app:init_app()
 
 echo "All services started"

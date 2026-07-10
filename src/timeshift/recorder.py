@@ -1,11 +1,17 @@
 import os
 import logging
 import subprocess
+import hashlib
 from datetime import datetime, timedelta
 from typing import Optional, List
 from src.config import Config
+from src.security import validate_input_url, validate_output_path, validate_safe_name
+from src.streaming.cache import get_timeshift_cache
 
 logger = logging.getLogger(__name__)
+
+# Initialize timeshift result cache
+timeshift_cache = get_timeshift_cache()
 
 
 class TimeshiftRecorder:
@@ -19,8 +25,13 @@ class TimeshiftRecorder:
             logger.warning(f"Already recording {channel_id}")
             return False
 
+        # Validate inputs for security
+        validate_safe_name(channel_id, "channel_id")
+        validate_input_url(input_url)
+
         date_str = datetime.now().strftime('%Y%m%d')
         output_dir = os.path.join(self.storage_path, channel_id, date_str)
+        validate_output_path(output_dir)
         os.makedirs(output_dir, exist_ok=True)
 
         output_file = os.path.join(output_dir, f"{datetime.now():%H%M%S}.ts")
@@ -71,9 +82,29 @@ class TimeshiftRecorder:
         return True
 
     def get_record_segment(self, channel_id: str, start_time: datetime,
-                          duration: int) -> Optional[str]:
+                          duration: int) -> Optional[bytes]:
+        """
+        Get timeshift segment as bytes. Uses cache for repeated requests.
+
+        Returns bytes content instead of file path for cache efficiency.
+        Returns None if segment not found.
+        """
+        validate_safe_name(channel_id, "channel_id")
+
+        # Generate cache key from request parameters
+        cache_key = hashlib.md5(
+            f"{channel_id}:{start_time.isoformat()}:{duration}".encode()
+        ).hexdigest()
+
+        # Try cache first
+        cached_content = timeshift_cache.get(cache_key)
+        if cached_content is not None:
+            logger.debug(f"Timeshift cache hit: {cache_key}")
+            return cached_content
+
         date_str = start_time.strftime('%Y%m%d')
         channel_dir = os.path.join(self.storage_path, channel_id, date_str)
+        validate_output_path(channel_dir)
 
         if not os.path.exists(channel_dir):
             return None
@@ -105,15 +136,24 @@ class TimeshiftRecorder:
         if not segments:
             return None
 
-        return self._concat_segments(segments, channel_id, start_time, duration)
+        result_content = self._concat_segments(segments, channel_id, start_time, duration)
+
+        # Cache successful result
+        if result_content is not None:
+            timeshift_cache.put(cache_key, result_content)
+            logger.debug(f"Cached timeshift result: {cache_key} ({len(result_content)/1024/1024:.2f}MB)")
+
+        return result_content
 
     def _concat_segments(self, segments: List[str], channel_id: str,
-                        start_time: datetime, duration: int) -> Optional[str]:
+                        start_time: datetime, duration: int) -> Optional[bytes]:
+        """Concat segments and return bytes content"""
         concat_file = os.path.join(
             self.storage_path,
             channel_id,
             f"concat_{start_time.timestamp()}.txt"
         )
+        validate_output_path(concat_file)
 
         with open(concat_file, 'w') as f:
             for seg in segments:
@@ -139,7 +179,11 @@ class TimeshiftRecorder:
             result = subprocess.run(cmd, capture_output=True, timeout=300)
             os.unlink(concat_file)
             if result.returncode == 0:
-                return output_path
+                # Read result and cleanup
+                with open(output_path, 'rb') as f:
+                    content = f.read()
+                os.unlink(output_path)
+                return content
             else:
                 logger.error(f"Concat failed: {result.stderr.decode()}")
                 return None

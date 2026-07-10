@@ -17,4 +17,4 @@ RUN mkdir -p logs /mnt/hls /mnt/vod /mnt/timeshift
 
 EXPOSE 8000
 
-CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:8000", "-t", "120", "--worker-class", "gevent", "src.app:init_app()", "--access-logfile", "-", "--error-logfile", "-"]
+CMD ["gunicorn", "-c", "gunicorn_config.py", "src.app:init_app()"]
