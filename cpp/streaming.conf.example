@@ -1,0 +1,104 @@
+# streaming_server 示例配置
+# 用法：./streaming_server streaming.conf
+# 顶层为全局标量（环境变量 STREAM_<KEY> 可覆盖）；
+# [vhost:<name>] 段定义一个虚拟主机，按 RTMP tcUrl 的 host 或 HTTP Host 头匹配。
+# 匹配顺序：精确域名 → *.后缀 通配 → [vhost:__default__]。
+
+# ---- 全局 ----
+HTTP_PORT=8080
+RTMP_PORT=1935
+SRT_PORT=19535
+IO_THREADS=4
+IDLE_TIMEOUT=0
+
+HLS_SEGMENT_DURATION=6
+HLS_WINDOW_SIZE=5
+HLS_OUTPUT_DIR=./hls
+CACHE_SIZE_MB=256
+
+# JWT 签名密钥（vhost 未单独配置时回落到此值）
+JWT_SECRET=change-me-please
+
+LOG_LEVEL=INFO
+# JSON 行日志（Loki/ELK 采集友好；trace_id 自动随行输出）
+LOG_JSON=false
+
+ENABLE_RATE_LIMIT=true
+# 全局默认配额（未命中任何路由策略的路径，按 IP 聚合）
+RATE_LIMIT_PER_SEC=100
+RATE_LIMIT_BURST=200
+# 分路由限流策略（每分钟配额，最长前缀匹配；0 = 关闭该策略）
+RATE_PLAYBACK_PER_MIN=300     # /live/*（HLS/HTTP-FLV/WS-FLV）
+RATE_API_PER_MIN=100          # /api/*（未命中更具体策略时）
+RATE_AUTH_PER_MIN=10          # /api/token /api/logout（防暴力破解）
+RATE_TRANSCODE_PER_MIN=5      # /api/transcode /api/record /api/forward /api/abr
+RATE_ADMIN_PER_MIN=20         # /api/nodes /api/cluster /api/vhosts /api/dvr /api/streams
+
+# 集群
+NODE_ID=node-1
+# 边缘节点：配置源站后本地未命中的流会 HTTP-FLV 回源
+# ORIGIN_URL=http://origin.example.com:8080
+# 集群节点：ip:httpPort:rtmpPort，逗号分隔
+# CLUSTER_NODES=10.0.0.2:8080:1935,10.0.0.3:8080:1935
+
+TRANSCODE_PROFILES=480p,720p
+TRANSCODE_CONCURRENCY=2
+# 终态转码任务保留时长（秒），GET /api/transcode 可查；超时自动清理
+TRANSCODE_TASK_TTL_SEC=3600
+
+# Redis 分布式状态（可选；HOST 留空 = 纯单机内存模式）：
+# - 分布式限流：固定窗口计数 rl:<policy>:<ip>，跨节点共享配额
+# - JWT 黑名单共享：bl:<jti>（TTL = token 剩余有效期）
+# - TS 分片缓存 L2：sc:<path>（TTL 120s，本地淘汰后快速回填）
+# Redis 不可用自动 fail-open 退回单机实现。
+# REDIS_HOST=127.0.0.1
+# REDIS_PORT=6379
+# REDIS_TIMEOUT_MS=50
+# REDIS_PASSWORD=
+
+# ---- 默认 Vhost（可选）----
+[vhost:__default__]
+# 鉴权：true 时推/拉流需在 stream key 中带 ?token=<jwt>
+# enable_auth=false
+# jwt_secret=
+# allow_apps=live,record
+# webhook_on_publish=http://127.0.0.1:9000/hooks/publish
+# webhook_on_play=http://127.0.0.1:9000/hooks/play
+# webhook_on_unpublish=http://127.0.0.1:9000/hooks/unpublish
+# webhook_on_stop=http://127.0.0.1:9000/hooks/stop
+# webhook_on_dvr=http://127.0.0.1:9000/hooks/dvr
+# webhook_on_hls=http://127.0.0.1:9000/hooks/hls
+# webhook_enabled=true
+# webhook_timeout_ms=1500
+# webhook_max_retries=3
+# enable_hls=true
+# hls_segment_duration=6
+# hls_window_size=5
+# enable_dvr=false
+# dvr_dir=./dvr
+# enable_transcode=false
+# transcode_profiles=480p,720p
+# max_publishers=0
+# max_viewers=0
+# max_bandwidth_bps=0
+
+# ---- 一个具体业务域名 ----
+[vhost:live.example.com]
+enable_auth=true
+jwt_secret=per-tenant-secret
+allow_apps=live
+max_publishers=100
+max_viewers=5000
+webhook_on_publish=http://backend.example.com/srs/hooks/publish
+webhook_on_play=http://backend.example.com/srs/hooks/play
+webhook_on_unpublish=http://backend.example.com/srs/hooks/unpublish
+webhook_on_stop=http://backend.example.com/srs/hooks/stop
+enable_dvr=true
+dvr_dir=/data/dvr
+hls_segment_duration=4
+hls_window_size=10
+
+# ---- 通配 vhost（*.cdn.example.com 都命中）----
+[vhost:*.cdn.example.com]
+enable_auth=false
+max_viewers=10000

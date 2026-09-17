@@ -1,0 +1,58 @@
+name: C++ Build & Test
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'cpp/**'
+      - '.github/workflows/cpp.yml'
+  pull_request:
+    paths:
+      - 'cpp/**'
+      - '.github/workflows/cpp.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: "gcc no-deps (stubs)"
+            cc: gcc
+            cxx: g++
+            deps: ""
+            cmake_flags: "-DCMAKE_BUILD_TYPE=Debug -DENABLE_ASAN=ON"
+          - name: "gcc full (OpenSSL + FFmpeg)"
+            cc: gcc
+            cxx: g++
+            deps: "libssl-dev libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev"
+            cmake_flags: "-DCMAKE_BUILD_TYPE=Debug -DENABLE_ASAN=ON"
+          - name: "clang Release"
+            cc: clang
+            cxx: clang++
+            deps: "libssl-dev"
+            cmake_flags: "-DCMAKE_BUILD_TYPE=Release"
+
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ${{ matrix.cc }} ${{ matrix.deps }}
+
+      - name: Configure
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+        run: cmake -S cpp -B cpp/build ${{ matrix.cmake_flags }} -DENABLE_BENCHMARKS=ON
+
+      - name: Build
+        run: cmake --build cpp/build -j"$(nproc)"
+
+      - name: Run unit tests
+        run: ctest --test-dir cpp/build --output-on-failure
+
+      - name: Build benchmarks
+        run: cmake --build cpp/build --target bench_buffer bench_lru bench_http bench_concurrent -j"$(nproc)"

@@ -1,0 +1,10 @@
+build/
+cmake-build-*/
+third_party/
+hls/
+*.o
+*.a
+*.so
+.vscode/
+.idea/
+.git/

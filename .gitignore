@@ -1,0 +1,18 @@
+# ---- 编辑器 / IDE ----
+.vscode/
+.idea/
+*.swp
+*~
+
+# ---- Python（旧版残留字节码）----
+*.pyc
+__pycache__/
+
+# ---- C++ 构建产物 ----
+cpp/build/
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.exe
