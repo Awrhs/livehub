@@ -238,7 +238,7 @@ int main(int argc, char* argv[]) {
         }
         ready = true;
         LOG_INFO("WHIP client: DTLS ready, SRTP %s",
-                 k.empty() ? "passthrough" : "enabled");
+                 srtpKey.empty() ? "passthrough" : "enabled");
     });
     dtls.init();
 

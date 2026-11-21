@@ -50,9 +50,11 @@ SharedCert& sharedSelfSignedCert() {
 bool ensureSelfSignedCert(SharedCert& sc) {
     if (sc.cert && sc.key) return true;
 
-    EVP_PKEY* key = EVP_RSA_gen(2048);
+    // ECDSA P-256：WebRTC 生态惯例（浏览器默认），部分实现（如 aiortc）只提供 ECDSA 套件，
+    // 原 RSA 证书会导致 "no shared cipher"
+    EVP_PKEY* key = EVP_EC_gen("P-256");
     if (!key) {
-        LOG_ERROR("DTLS: EVP_RSA_gen failed");
+        LOG_ERROR("DTLS: EVP_EC_gen(P-256) failed");
         return false;
     }
     X509* cert = X509_new();
