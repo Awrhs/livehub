@@ -36,7 +36,7 @@ TcpConnection::TcpConnection(EventLoop* loop, const std::string& name,
 
 TcpConnection::~TcpConnection() {
     LOG_DEBUG("TcpConnection dtor [%s] fd=%d state=%d",
-              name_.c_str(), socket_.fd(), state_);
+              name_.c_str(), socket_.fd(), static_cast<int>(state_.load()));
 }
 
 void TcpConnection::connectEstablished() {

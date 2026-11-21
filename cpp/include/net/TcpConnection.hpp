@@ -149,7 +149,7 @@ private:
 
     EventLoop* loop_;
     const std::string name_;
-    State state_;
+    std::atomic<State> state_;  // 跨线程读取（connected() 在发布者线程被调用）
     Socket socket_;
     Channel channel_;
     Buffer inputBuffer_;
