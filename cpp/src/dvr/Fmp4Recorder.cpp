@@ -78,7 +78,8 @@ void Fmp4Recorder::start() {
                 hasAudio_ = true;
             }
         }
-        subId_ = stream_->subscribe(
+        // 原子回放 GOP 后订阅：录制从缓存的最近 IDR 开始，而不是从 GOP 中间开始
+        subId_ = stream_->subscribeWithGop(
             [w = weak_from_this()](const MediaPacket& pkt) {
                 if (auto self = w.lock()) self->onPacket(pkt);
             });
@@ -170,6 +171,17 @@ void Fmp4Recorder::onPacket(const MediaPacket& pkt) {
     else if (pkt.type == MediaPacket::kAudio) handleAudio(pkt);
 }
 
+bool Fmp4Recorder::acceptVideo(uint32_t dts, bool isKey) {
+    // 录像必须从关键帧开始（否则开头一段无法解码）；首个关键帧确定音视频共同时间基准
+    // （原实现音视频各自以首帧为 0，起点可相差一个 GOP，导致音画不同步）
+    if (!haveBase_) {
+        if (!isKey) return false;
+        haveBase_ = true;
+        baseTs_ = dts;
+    }
+    return dts >= baseTs_;
+}
+
 void Fmp4Recorder::handleVideo(const MediaPacket& pkt) {
     const uint8_t* d = pkt.data.data();
     size_t n = pkt.data.size();
@@ -179,7 +191,7 @@ void Fmp4Recorder::handleVideo(const MediaPacket& pkt) {
     if (pkt.enhanced && pkt.videoCodec == VideoCodec::kHevc) {
         EnhancedRtmp::VideoInfo vi;
         if (!EnhancedRtmp::parseVideo(d, n, vi)) return;
-        if (vi.packetType == 0 || vi.packetType == 3) {
+        if (vi.packetType == EnhancedRtmp::kPktSequenceStart) {
             // HEVCDecoderConfigurationRecord（hvCC）
             if (vi.payloadLen == 0) return;
             std::lock_guard<std::mutex> lk(mu_);
@@ -188,7 +200,9 @@ void Fmp4Recorder::handleVideo(const MediaPacket& pkt) {
             ensureInit();
             return;
         }
-        if (vi.packetType != 1 && vi.packetType != 2) return;
+        if (vi.packetType != EnhancedRtmp::kPktCodedFrames &&
+            vi.packetType != EnhancedRtmp::kPktCodedFramesX)
+            return;
         if (vi.payloadLen == 0) return;
 
         uint32_t dts = pkt.timestamp;
@@ -198,24 +212,18 @@ void Fmp4Recorder::handleVideo(const MediaPacket& pkt) {
 
         std::lock_guard<std::mutex> lk(mu_);
         if (avcc_.empty()) return;
-        ensureInit();
-        if (!videoHaveFirst_) {
-            videoHaveFirst_ = true;
-            videoFirstDts_ = dts;
-            videoBaseDts_ = 0;
-        }
-        uint32_t dts90 = (dts - videoFirstDts_) * 90u;
-        uint32_t pts90 = pts > videoFirstDts_ ? (pts - videoFirstDts_) * 90u
-                                             : dts90;
         bool isKey = pkt.isKeyframe;
+        if (!acceptVideo(dts, isKey)) return;
+        ensureInit();
+        uint32_t dts90 = (dts - baseTs_) * 90u;
+        uint32_t pts90 = pts > baseTs_ ? (pts - baseTs_) * 90u : dts90;
         if (isKey && !videoSamples_.empty() &&
-            (dts - videoFirstDts_) - curVideoSegmentMs_ >=
-                opt_.segmentDurationMs) {
+            (dts - baseTs_) - curVideoSegmentMs_ >= opt_.segmentDurationMs) {
             flushFragment(false);
         }
         if (videoSamples_.empty()) {
             videoBaseDts_ = dts90;
-            curVideoSegmentMs_ = dts - videoFirstDts_;
+            curVideoSegmentMs_ = dts - baseTs_;
         }
         Mp4BoxWriter::SampleInfo s;
         s.duration = 0;
@@ -252,27 +260,22 @@ void Fmp4Recorder::handleVideo(const MediaPacket& pkt) {
 
     std::lock_guard<std::mutex> lk(mu_);
     if (avcc_.empty()) return;  // 等 sequence header
+    bool isKey = pkt.isKeyframe || AvcParser::isKeyframe(d, n);
+    if (!acceptVideo(dts, isKey)) return;
     ensureInit();
 
-    if (!videoHaveFirst_) {
-        videoHaveFirst_ = true;
-        videoFirstDts_ = dts;
-        videoBaseDts_ = 0;
-    }
-    uint32_t dts90 = (dts - videoFirstDts_) * 90u;
-    uint32_t pts90 = pts > videoFirstDts_ ? (pts - videoFirstDts_) * 90u : dts90;
+    uint32_t dts90 = (dts - baseTs_) * 90u;
+    uint32_t pts90 = pts > baseTs_ ? (pts - baseTs_) * 90u : dts90;
 
-    bool isKey = pkt.isKeyframe || AvcParser::isKeyframe(d, n);
     // 到达关键帧且当前分片时长超过目标，则切片（音视频一起 flush）
     if (isKey && !videoSamples_.empty() &&
-        (dts - videoFirstDts_) - curVideoSegmentMs_ >=
-            opt_.segmentDurationMs) {
+        (dts - baseTs_) - curVideoSegmentMs_ >= opt_.segmentDurationMs) {
         flushFragment(false);
     }
 
     if (videoSamples_.empty()) {
         videoBaseDts_ = dts90;
-        curVideoSegmentMs_ = dts - videoFirstDts_;
+        curVideoSegmentMs_ = dts - baseTs_;
     }
 
     Mp4BoxWriter::SampleInfo s;
@@ -308,14 +311,16 @@ void Fmp4Recorder::handleAudio(const MediaPacket& pkt) {
 
     std::lock_guard<std::mutex> lk(mu_);
     if (asc_.empty()) return;
-    ensureInit();
-    if (!audioHaveFirst_) {
-        audioHaveFirst_ = true;
-        audioFirstDts_ = pkt.timestamp;
-        audioBaseDts_ = 0;
+    if (!haveBase_) {
+        // 有视频时以首个视频关键帧为时间基准，之前的音频丢弃；纯音频流以首个音频为基准
+        if (!avcc_.empty() || stream_->videoSequenceHeader().size() > 0) return;
+        haveBase_ = true;
+        baseTs_ = pkt.timestamp;
     }
+    if (pkt.timestamp < baseTs_) return;
+    ensureInit();
     uint32_t dtsHz =
-        static_cast<uint32_t>(uint64_t(pkt.timestamp - audioFirstDts_) *
+        static_cast<uint32_t>(uint64_t(pkt.timestamp - baseTs_) *
                               audioTimescale_ / 1000);
 
     // 音频切片跟随视频关键帧（flushFragment 一起切），不单独触发

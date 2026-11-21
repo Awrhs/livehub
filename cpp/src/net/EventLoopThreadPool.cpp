@@ -12,7 +12,12 @@ EventLoopThreadPool::EventLoopThreadPool(EventLoop* baseLoop, std::string name)
       numThreads_(0),
       next_(0) {}
 
-EventLoopThreadPool::~EventLoopThreadPool() { stop(); }
+EventLoopThreadPool::~EventLoopThreadPool() {
+    stop();
+    for (auto& t : threads_) {
+        if (t) t->owned.reset();  // 线程已 join，可安全销毁
+    }
+}
 
 void EventLoopThreadPool::stop() {
     for (auto& t : threads_) {
@@ -42,17 +47,20 @@ void EventLoopThreadPool::start(const ThreadInitCallback& cb) {
         std::string tname = name_ + "#" + std::to_string(i);
         raw->thread = std::make_unique<std::thread>(
             [raw, mtx, cv, ready, cb, tname]() {
-                EventLoop loop;
+                auto loop = std::make_unique<EventLoop>();
+                EventLoop* lp = loop.get();
                 {
                     std::lock_guard<std::mutex> lk(*mtx);
-                    raw->loop = &loop;
+                    raw->owned = std::move(loop);
+                    raw->loop = lp;
                     *ready = true;
                 }
                 cv->notify_one();
 
-                if (cb) cb(&loop);
+                if (cb) cb(lp);
                 LOG_INFO("%s start looping", tname.c_str());
-                loop.loop();
+                lp->loop();
+                // 不在此销毁 EventLoop：由池在 join 后销毁
             });
 
         // 等待该线程把 loop 指针准备好

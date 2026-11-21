@@ -51,9 +51,11 @@ private:
     int numThreads_;
     std::atomic<size_t> next_;
 
-    // 线程与 loop 一一对应（loop_ 在线程函数内创建并运行）
+    // 线程与 loop 一一对应。EventLoop 在线程内创建（绑定线程 id），但由池持有、
+    // 在 join 之后才销毁：否则 quit() 的唤醒写入会与线程退出时关闭 eventfd 竞争。
     struct LoopThread {
         EventLoop* loop = nullptr;
+        std::unique_ptr<EventLoop> owned;
         std::unique_ptr<std::thread> thread;
     };
     std::vector<std::unique_ptr<LoopThread>> threads_;
