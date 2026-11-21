@@ -1,4 +1,6 @@
 #include "webrtc/WebRtcIngest.hpp"
+#include <chrono>
+#include <algorithm>
 #include "core/Logger.hpp"
 
 #include <arpa/inet.h>
@@ -102,67 +104,79 @@ void WebRtcIngest::onIceData(const uint8_t* data, size_t len,
 
 void WebRtcIngest::onNalu(const uint8_t* nalu, size_t len, uint32_t rtpTs,
                           bool marker) {
-    (void)marker;
     auto stream = stream_.lock();
     if (!stream || len == 0) return;
-
-    // RTP 90kHz → ms
     if (!haveBase_) {
         clockBase_ = rtpTs;
         haveBase_ = true;
     }
-    uint32_t delta = rtpTs - clockBase_;
-    uint32_t tsMs = delta / 90;
+    // 同一 RTP 时间戳的 NALU 属于同一帧：时间戳变化时先输出上一帧
+    if (!frame_.empty() && rtpTs != frameTs_) flushFrame(*stream);
+    frameTs_ = rtpTs;
 
-    // 累积 SPS/PPS 生成 AVCDecoderConfigurationRecord（最小可用版本）。
-    if (isSps(nalu)) sps_.assign(nalu, nalu + len);
-    if (isPps(nalu)) pps_.assign(nalu, nalu + len);
+    uint8_t type = nalu[0] & 0x1F;
+    if (type == 7 || type == 8) {
+        // SPS/PPS：内容变化时更新流的序列头（必须 setVideoSequenceHeader，
+        // 否则后加入的观众回放 GOP 时拿不到序列头；原实现只分发不保存）
+        std::vector<uint8_t>& dst = (type == 7) ? sps_ : pps_;
+        if (dst.size() != len || !std::equal(dst.begin(), dst.end(), nalu)) {
+            dst.assign(nalu, nalu + len);
+            configDirty_ = true;
+        }
+        if (configDirty_ && !sps_.empty() && !pps_.empty() && sps_.size() >= 4) {
+            configDirty_ = false;
+            MediaPacket sh;
+            sh.type = MediaPacket::kVideo;
+            sh.videoCodec = VideoCodec::kH264;
+            sh.isSequenceHeader = true;
+            sh.isKeyframe = true;
+            sh.timestamp = (rtpTs - clockBase_) / 90;
+            std::vector<uint8_t>& d = sh.data;
+            d = {0x17, 0x00, 0x00, 0x00, 0x00, 0x01, sps_[1], sps_[2], sps_[3], 0xFF, 0xE1};
+            d.push_back(static_cast<uint8_t>(sps_.size() >> 8));
+            d.push_back(static_cast<uint8_t>(sps_.size()));
+            d.insert(d.end(), sps_.begin(), sps_.end());
+            d.push_back(1);
+            d.push_back(static_cast<uint8_t>(pps_.size() >> 8));
+            d.push_back(static_cast<uint8_t>(pps_.size()));
+            d.insert(d.end(), pps_.begin(), pps_.end());
+            stream->setVideoSequenceHeader(sh.data);
+            stream->onPacket(std::move(sh));
+        }
+    } else if (type != 9) {  // 跳过 AUD；其余 NALU 以 AVCC 形式累积到当前帧
+        if (type == 5) frameKey_ = true;
+        uint32_t l = static_cast<uint32_t>(len);
+        frame_.push_back(static_cast<uint8_t>(l >> 24));
+        frame_.push_back(static_cast<uint8_t>(l >> 16));
+        frame_.push_back(static_cast<uint8_t>(l >> 8));
+        frame_.push_back(static_cast<uint8_t>(l));
+        frame_.insert(frame_.end(), nalu, nalu + len);
+    }
+    if (marker) flushFrame(*stream);  // marker 位表示一帧结束
+}
 
-    MediaPacket pkt;
-    pkt.timestamp = tsMs;
-
-    if ((isSps(nalu) || isPps(nalu)) && !sps_.empty() && !pps_.empty()) {
-        // 构造 AVCDecoderConfigurationRecord
-        pkt.type = MediaPacket::kVideo;
-        pkt.isSequenceHeader = true;
-        std::vector<uint8_t>& d = pkt.data;
-        d.push_back(0x17);  // keyframe + AVC
-        d.push_back(0x00);  // AVCPacketType sequence header
-        d.push_back(0x00);
-        d.push_back(0x00);
-        d.push_back(0x00);  // composition time
-        d.push_back(0x01);  // version
-        d.push_back(sps_[1]);
-        d.push_back(sps_[2]);
-        d.push_back(sps_[3]);
-        d.push_back(0xFF);  // 6 bits reserved(0xFC) | (naluLenSize-1)=3
-        d.push_back(0xE1);  // 3 bits reserved(0xE0) | numSPS=1
-        d.push_back((sps_.size() >> 8) & 0xFF);
-        d.push_back(sps_.size() & 0xFF);
-        d.insert(d.end(), sps_.begin(), sps_.end());
-        d.push_back(1);
-        d.push_back((pps_.size() >> 8) & 0xFF);
-        d.push_back(pps_.size() & 0xFF);
-        d.insert(d.end(), pps_.begin(), pps_.end());
-        stream->onPacket(std::move(pkt));
+void WebRtcIngest::flushFrame(MediaStream& stream) {
+    // 一帧的全部 NALU 放进同一个 FLV/RTMP 视频包（原实现每个 NALU 单独成包，多 slice 帧无法解码）
+    if (frame_.empty()) return;
+    if (sps_.empty() || pps_.empty()) {  // 还没有参数集：无法解码，丢弃
+        frame_.clear();
+        frameKey_ = false;
         return;
     }
-
-    // 普通 NALU → AVCC（4 字节长度前缀）
+    MediaPacket pkt;
     pkt.type = MediaPacket::kVideo;
-    pkt.isKeyframe = isIdr(nalu);
-    pkt.data.push_back(isIdr(nalu) ? 0x17 : 0x27);
-    pkt.data.push_back(0x01);  // NALU
-    pkt.data.push_back(0x00);
-    pkt.data.push_back(0x00);
-    pkt.data.push_back(0x00);
-    uint32_t l = static_cast<uint32_t>(len);
-    pkt.data.push_back((l >> 24) & 0xFF);
-    pkt.data.push_back((l >> 16) & 0xFF);
-    pkt.data.push_back((l >> 8) & 0xFF);
-    pkt.data.push_back(l & 0xFF);
-    pkt.data.insert(pkt.data.end(), nalu, nalu + len);
-    stream->onPacket(std::move(pkt));
+    pkt.videoCodec = VideoCodec::kH264;
+    pkt.isKeyframe = frameKey_;
+    pkt.timestamp = (frameTs_ - clockBase_) / 90;
+    pkt.data.reserve(frame_.size() + 5);
+    pkt.data = {static_cast<uint8_t>(frameKey_ ? 0x17 : 0x27), 0x01, 0x00, 0x00, 0x00};
+    pkt.data.insert(pkt.data.end(), frame_.begin(), frame_.end());
+    frame_.clear();
+    frameKey_ = false;
+    stream.touch(std::chrono::duration_cast<std::chrono::milliseconds>(
+                     std::chrono::system_clock::now().time_since_epoch())
+                     .count());
+    stream.onPacket(std::move(pkt));
 }
 
 }  // namespace streaming

@@ -52,6 +52,10 @@ private:
     void onIceData(const uint8_t* data, size_t len, const sockaddr_in& peer);
     void sendSrtp(const uint8_t* data, size_t len);
     void onVideoPacket(const MediaPacket& pkt);
+    void subscribeMedia();
+    void cacheParameterSets(const std::vector<uint8_t>& seqHeader);
+    std::vector<std::vector<uint8_t>> paramSets_;  // SPS/PPS（发布者线程访问）
+    bool sentKeyframe_ = false;
     void onAudioPacket(const MediaPacket& pkt);
 
     [[maybe_unused]] EventLoop* loop_;

@@ -64,6 +64,12 @@ private:
     [[maybe_unused]] uint32_t lastRtpTs_ = 0;
     int videoPt_ = -1;
     std::vector<uint8_t> sps_, pps_;
+    bool configDirty_ = false;
+    // 当前帧（AVCC 累积）
+    std::vector<uint8_t> frame_;
+    uint32_t frameTs_ = 0;
+    bool frameKey_ = false;
+    void flushFrame(MediaStream& stream);
 };
 
 }  // namespace streaming
