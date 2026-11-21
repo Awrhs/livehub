@@ -49,14 +49,21 @@ echo "== 启动服务器"
 SERVER_PID=$!
 
 for _ in $(seq 1 50); do
-    curl -sf "http://127.0.0.1:$HTTP/api/health" >/dev/null 2>&1 && break
+    curl -sf --max-time 5 "http://127.0.0.1:$HTTP/api/health" >/dev/null 2>&1 && break
     sleep 0.2
 done
-if curl -sf "http://127.0.0.1:$HTTP/api/health" >"$WORK/health.json"; then
+if curl -sf --max-time 5 "http://127.0.0.1:$HTTP/api/health" >"$WORK/health.json"; then
     pass "health 接口可用: $(head -c 200 "$WORK/health.json")"
 else
     fail "服务器未能在 10s 内就绪"
-    tail -50 "$LOG"
+    echo "  -- 进程状态: $(kill -0 $SERVER_PID 2>/dev/null && echo alive || echo dead)"
+    echo "  -- 原始 HTTP 交互:"
+    printf 'GET /api/health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n' \
+        | timeout 5 nc -q3 127.0.0.1 $HTTP | head -20
+    echo "  -- 监听端口:"; ss -ltnp 2>/dev/null | grep -E ":($HTTP|$RTMP)\b"
+    echo "  -- 线程栈 (gdb):"
+    timeout 30 gdb -p "$SERVER_PID" -batch -ex "thread apply all bt 8" 2>/dev/null | grep -E '^#|^Thread' | head -80
+    echo "  -- 服务器日志:"; tail -80 "$LOG"
     exit 1
 fi
 
@@ -113,7 +120,7 @@ check_pull httpflv "http://127.0.0.1:$HTTP/live/$KEY.flv" 5 100
 
 echo "== HLS"
 M3U8="http://127.0.0.1:$HTTP/live/$KEY.m3u8"
-if curl -sf "$M3U8" >"$WORK/playlist.m3u8"; then
+if curl -sf --max-time 5 "$M3U8" >"$WORK/playlist.m3u8"; then
     pass "m3u8 可访问"
     grep -q '#EXTM3U' "$WORK/playlist.m3u8" && pass "m3u8 头正确" || fail "m3u8 缺少 #EXTM3U"
     nseg=$(grep -c '^#EXTINF' "$WORK/playlist.m3u8")
@@ -122,7 +129,7 @@ if curl -sf "$M3U8" >"$WORK/playlist.m3u8"; then
     if [ -n "$seg" ]; then
         case "$seg" in http*) segurl=$seg ;; /*) segurl="http://127.0.0.1:$HTTP$seg" ;;
             *) segurl="http://127.0.0.1:$HTTP/live/$seg" ;; esac
-        if curl -sf "$segurl" -o "$WORK/seg.ts"; then
+        if curl -sf --max-time 5 "$segurl" -o "$WORK/seg.ts"; then
             sz=$(stat -c %s "$WORK/seg.ts")
             first=$(head -c1 "$WORK/seg.ts" | od -An -tx1 | tr -d ' ')
             [ "$first" = "47" ] && [ $((sz % 188)) -eq 0 ] \
@@ -138,9 +145,9 @@ fi
 check_pull hls "$M3U8" 4 80
 
 echo "== API"
-curl -sf "http://127.0.0.1:$HTTP/metrics" >"$WORK/metrics.txt" \
+curl -sf --max-time 5 "http://127.0.0.1:$HTTP/metrics" >"$WORK/metrics.txt" \
     && pass "/metrics 可访问 ($(wc -l <"$WORK/metrics.txt") 行)" || fail "/metrics 不可访问"
-curl -sf "http://127.0.0.1:$HTTP/api/streams" >"$WORK/streams.json" 2>&1 \
+curl -sf --max-time 5 "http://127.0.0.1:$HTTP/api/streams" >"$WORK/streams.json" 2>&1 \
     && grep -q "$KEY" "$WORK/streams.json" && pass "/api/streams 列出了推流" \
     || echo "  [INFO] /api/streams 未列出推流（可能需鉴权）: $(head -c 200 "$WORK/streams.json")"
 
@@ -152,7 +159,11 @@ sleep 1
 kill -0 "$SERVER_PID" 2>/dev/null && pass "畸形输入后进程存活" || fail "畸形输入导致进程退出"
 
 echo "== 推流结束后的清理"
-wait "$PUSH_PID" 2>/dev/null
+for _ in $(seq 1 60); do kill -0 "$PUSH_PID" 2>/dev/null || break; sleep 1; done
+if kill -0 "$PUSH_PID" 2>/dev/null; then
+    fail "推流 ffmpeg 未按时结束（服务端可能停止读取/背压卡死）"
+    kill -9 "$PUSH_PID" 2>/dev/null
+fi
 PUSH_PID=""
 sleep 3
 kill -0 "$SERVER_PID" 2>/dev/null && pass "推流结束后进程存活" || fail "推流结束后进程退出"
