@@ -8,7 +8,16 @@
   status=201 state=connected video_frames=120 audio_frames=200
 """
 import asyncio
+import logging
+import os
 import sys
+
+# 调试：WEBRTC_DEBUG=1 时输出 aioice 连通性检查细节到 stderr
+if os.environ.get("WEBRTC_DEBUG"):
+    logging.basicConfig(level=logging.DEBUG, stream=sys.stderr,
+                        format="%(asctime)s %(name)s %(message)s")
+    for noisy in ("aiortc.rtcrtpreceiver", "aiortc.rtcrtpsender", "asyncio"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
 import aiohttp
 from aiortc import RTCPeerConnection, RTCSessionDescription

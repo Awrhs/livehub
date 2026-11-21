@@ -120,7 +120,7 @@ fi
 echo "== WebRTC（aiortc 第三方客户端）"
 PY=${WEBRTC_PY:-python3}
 if $PY -c "import aiortc" 2>/dev/null; then
-    $PY "$(dirname "$0")/webrtc_client.py" whip "http://127.0.0.1:$HTTP/whip/whipin" 25 >"$WORK/whip.out" 2>"$WORK/whip.err" &
+    WEBRTC_DEBUG=1 $PY "$(dirname "$0")/webrtc_client.py" whip "http://127.0.0.1:$HTTP/whip/whipin" 25 >"$WORK/whip.out" 2>"$WORK/whip.err" &
     WHIP_PID=$!
     sleep 10
     probe whip_flv "http://127.0.0.1:$HTTP/live/whipin.flv" h264 3 30
@@ -132,7 +132,7 @@ if $PY -c "import aiortc" 2>/dev/null; then
     wait "$WHIP_PID"
     W=$(cat "$WORK/whip.out")
     echo "$W" | grep -q 'state=connected' && pass "WHIP 会话保持连接（$W）" \
-        || fail "WHIP 会话异常（$W；$(tail -2 "$WORK/whip.err" | tr '\n' ' ' | cut -c1-200)）"
+        || { fail "WHIP 会话异常（$W）"; grep -iE 'check|stun|integrity|error|fail|dtls' "$WORK/whip.err" | head -15 | cut -c1-220 | sed 's/^/    whip.err: /'; }
 else
     echo "  [INFO] 未安装 aiortc，跳过"
 fi
