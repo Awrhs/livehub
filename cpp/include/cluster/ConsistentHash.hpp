@@ -25,6 +25,7 @@ public:
 
     void addNode(const std::string& node);
     void removeNode(const std::string& node);
+    void clear();
 
     /// 返回 key 负责的节点；空环返回空串
     std::string getNode(const std::string& key) const;

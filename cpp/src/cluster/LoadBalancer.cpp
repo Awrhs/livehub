@@ -71,8 +71,7 @@ void LoadBalancer::releaseNode(const NodePtr& node) {
 
 void LoadBalancer::rebuildRing() {
     std::lock_guard<std::mutex> lk(ringMu_);
-    // 重新构建：清空再添加（ConsistentHash 没有 clear，重建对象）
-    ring_ = ConsistentHash();
+    ring_.clear();
     for (const auto& n : registry_->all()) {
         ring_.addNode(n->id);
     }

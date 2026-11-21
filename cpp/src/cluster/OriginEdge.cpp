@@ -3,6 +3,7 @@
 #include "core/Logger.hpp"
 #include "net/EventLoop.hpp"
 #include "net/TcpConnection.hpp"
+#include "net/Timer.hpp"
 
 namespace streaming {
 
@@ -22,7 +23,7 @@ struct OriginEdge::PullSession
     bool chunked_ = false;
     // 延迟释放
     EventLoop* loop;
-    uint64_t releaseTimer = 0;  // 0 表示无待释放
+    TimerId releaseTimer;  // 空 TimerId 表示无待释放
     static constexpr double kReleaseDelaySec = 5.0;
 
     PullSession(EventLoop* l, std::string k, std::string h,
@@ -46,10 +47,13 @@ struct OriginEdge::PullSession
                     return;
                 }
                 // 每次（重）连接都重置 demuxer 并重新发起 GET
-                self->demuxer = FlvDemuxer();
+                self->demuxer.reset();
                 self->headerParsed_ = false;
                 self->chunked_ = false;
-                self->demuxer.setTagCallback([self](const MediaPacket& pkt) {
+                // 捕获 weak 引用，避免 demuxer 回调强持有 self 造成循环引用
+                self->demuxer.setTagCallback([weak](const MediaPacket& pkt) {
+                    auto self = weak.lock();
+                    if (!self) return;
                     if (pkt.type == MediaPacket::kVideo &&
                         pkt.isSequenceHeader) {
                         self->stream->setVideoSequenceHeader(pkt.data);
@@ -146,9 +150,9 @@ struct OriginEdge::PullSession
     void acquire() {
         refCount.fetch_add(1);
         // 取消待释放
-        if (releaseTimer != 0 && loop) {
+        if (releaseTimer && loop) {
             loop->cancel(releaseTimer);
-            releaseTimer = 0;
+            releaseTimer = TimerId();
         }
     }
 
@@ -161,7 +165,7 @@ struct OriginEdge::PullSession
             loop->runAfter(kReleaseDelaySec, [weak, destroy] {
                 if (auto self = weak.lock()) {
                     if (self->refCount.load() <= 0) destroy();
-                    self->releaseTimer = 0;
+                    self->releaseTimer = TimerId();
                 }
             });
     }

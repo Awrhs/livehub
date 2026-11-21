@@ -18,7 +18,7 @@ namespace streaming {
 
 class Channel;
 class TimerQueue;
-class TimerId;
+struct TimerId;
 
 /**
  * EventLoop: 事件循环，Reactor 模式的核心。

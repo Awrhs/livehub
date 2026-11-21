@@ -128,6 +128,11 @@ void ConsistentHash::removeNode(const std::string& node) {
     }
 }
 
+void ConsistentHash::clear() {
+    std::lock_guard<std::mutex> lk(mu_);
+    ring_.clear();
+}
+
 std::string ConsistentHash::getNode(const std::string& key) const {
     std::lock_guard<std::mutex> lk(mu_);
     if (ring_.empty()) return "";
