@@ -83,6 +83,14 @@ public:
     AuthResult authorize(const std::string& event, const EventMap& fields,
                          const Config& vhostCfg);
 
+    /// 异步鉴权：立即返回；结果在 webhook 工作线程中回调（未配置 URL 时在当前线程立即回调）。
+    /// 网络错误/超时/响应无法解析均放行（fail-open）。
+    using AuthDone = std::function<void(const AuthResult&)>;
+    void authorizeAsync(const std::string& event, const EventMap& fields,
+                        const Config& vhostCfg, AuthDone done);
+    /// 该 vhost 配置下某事件是否配置了回调 URL
+    bool hasHook(const std::string& event, const Config& vhostCfg) const;
+
     /// 全局启用/禁用
     void setEnabled(bool on) { enabled_.store(on); }
     bool enabled() const { return enabled_.load(); }
@@ -91,16 +99,21 @@ public:
     uint64_t totalFailed() const { return failed_.load(); }
 
 private:
+    // 同步等待状态：以 shared_ptr 与 Job 共享。
+    // （原实现指向调用方栈上的 mutex/cv，等待超时返回后 worker 再访问即为 use-after-free）
+    struct SyncWait {
+        std::mutex mu;
+        std::condition_variable cv;
+        bool done = false;
+        AuthResult result;
+    };
     struct Job {
         std::string url;
         std::string body;
         bool needResult = false;
         int retries = 0;
-        // 同步结果
-        bool done = false;
-        AuthResult result;
-        std::mutex* mu = nullptr;
-        std::condition_variable* cv = nullptr;
+        std::shared_ptr<SyncWait> sync;                     // 同步鉴权
+        std::function<void(const AuthResult&)> onDone;      // 异步鉴权（在 worker 线程回调）
     };
 
     void workerLoop();
@@ -121,7 +134,8 @@ private:
     Config cfg_;
     mutable std::mutex cfgMu_;
 
-    std::thread worker_;
+    std::vector<std::thread> workers_;  // 多个工作线程，避免单个慢回调阻塞全部通知/鉴权
+    static constexpr int kWorkers = 4;
     std::mutex qMu_;
     std::condition_variable qCv_;
     std::deque<std::shared_ptr<Job>> queue_;

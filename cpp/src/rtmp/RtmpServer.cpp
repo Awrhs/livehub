@@ -32,7 +32,7 @@ RtmpServer::RtmpServer(EventLoop* loop, uint16_t port, std::string app)
             if (conn->connected()) {
                 auto rc = std::make_shared<RtmpConnection>(conn, app_);
                 rc->setPublishCallback(
-                    [this](const std::shared_ptr<RtmpConnection>&,
+                    [this](const std::shared_ptr<RtmpConnection>& c,
                            const std::string&, const std::string& key,
                            std::shared_ptr<MediaStream> ms) -> bool {
                         {
@@ -42,6 +42,11 @@ RtmpServer::RtmpServer(EventLoop* loop, uint16_t port, std::string app)
                             if (it != streams_.end() && it->second->hasPublisher())
                                 return false;
                             streams_[key] = ms;
+                        }
+                        // 推流成功才计入配额（关闭时按 quotaCounted 回收）
+                        if (auto vh = resolveVhost(c->host())) {
+                            vh->publishers.fetch_add(1);
+                            c->setQuotaCounted(true);
                         }
                         if (onPublish_) onPublish_(ms);
                         return true;
@@ -57,15 +62,18 @@ RtmpServer::RtmpServer(EventLoop* loop, uint16_t port, std::string app)
                             return;
                         }
                         c->startPlayback(ms);
+                        if (auto vh = resolveVhost(c->host())) {
+                            vh->viewers.fetch_add(1);
+                            c->setQuotaCounted(true);
+                        }
                         if (onPlay_) onPlay_(c, app, key);
                     });
                 rc->setAuthCallback(
                     [this](const std::string& host, const std::string& app,
                            const std::string& key, bool publish,
-                           std::string* reason) {
-                        if (onAuth_) return onAuth_(host, app, key, publish,
-                                                    reason);
-                        return true;
+                           RtmpConnection::AuthDone done) {
+                        if (onAuth_) onAuth_(host, app, key, publish, std::move(done));
+                        else done(true, "");
                     });
                 rc->setCloseCallback(
                     [this](const std::shared_ptr<RtmpConnection>& c) {
@@ -74,9 +82,10 @@ RtmpServer::RtmpServer(EventLoop* loop, uint16_t port, std::string app)
                         }
                         // 回收该连接占用的 vhost 配额
                         auto vh = resolveVhost(c->host());
-                        if (vh) {
+                        if (vh && c->quotaCounted()) {
                             if (c->isPublisher()) vh->publishers.fetch_sub(1);
                             if (c->isPlayer()) vh->viewers.fetch_sub(1);
+                            c->setQuotaCounted(false);
                         }
                         // 解除 TcpConnection 对会话的持有；断连回调据此不再重复清理
                         if (auto tc = c->tcpConn()) tc->setContext(std::any());
@@ -95,9 +104,10 @@ RtmpServer::RtmpServer(EventLoop* loop, uint16_t port, std::string app)
                         removeStream(c->streamKey(), c->stream());
                     }
                     auto vh = resolveVhost(c->host());
-                    if (vh) {
+                    if (vh && c->quotaCounted()) {
                         if (c->isPublisher()) vh->publishers.fetch_sub(1);
                         if (c->isPlayer()) vh->viewers.fetch_sub(1);
+                        c->setQuotaCounted(false);
                     }
                 }
             }

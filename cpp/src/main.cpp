@@ -459,10 +459,36 @@ int main(int argc, char* argv[]) {
             }
             return true;
         };
+    // RTMP 异步鉴权：本地校验（vhost/配额/应用/JWT）同步完成；webhook 异步执行，
+    // 不阻塞 IO 线程。配额由 RtmpServer 在推/拉流成功时计入。
     rtmpServer->setAuthHandler(
         [&](const std::string& host, const std::string& app,
-            const std::string& key, bool publish, std::string* reason) {
-            return authorizeStream(host, app, key, publish, reason, true, true);
+            const std::string& rawKey, bool publish,
+            RtmpConnection::AuthDone done) {
+            std::string reason;
+            if (!authorizeStream(host, app, rawKey, publish, &reason,
+                                 /*countQuota=*/false, /*callHook=*/false)) {
+                done(false, reason);
+                return;
+            }
+            auto vh = vhostManager->resolve(host);
+            if (!vh) {
+                done(true, "");
+                return;
+            }
+            std::string key, query;
+            RtmpConnection::splitStreamKey(rawKey, &key, &query);
+            const std::string event = publish ? "on_publish" : "on_play";
+            WebhookManager::EventMap fields;
+            fields["action"] = event;
+            fields["app"] = app;
+            fields["stream"] = key;
+            fields["vhost"] = vh->name;
+            webhooks->authorizeAsync(event, fields, vh->webhooks,
+                [done](const WebhookManager::AuthResult& r) {
+                    done(r.allowed, r.allowed ? std::string()
+                                              : (r.message.empty() ? "denied by hook" : r.message));
+                });
         });
 
     // ---- HTTP ----

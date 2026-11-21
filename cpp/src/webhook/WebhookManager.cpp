@@ -80,15 +80,26 @@ WebhookManager::~WebhookManager() { stop(); }
 void WebhookManager::start() {
     bool expected = false;
     if (!running_.compare_exchange_strong(expected, true)) return;
-    worker_ = std::thread([this] { workerLoop(); });
-    LOG_INFO("WebhookManager started");
+    for (int i = 0; i < kWorkers; ++i)
+        workers_.emplace_back([this] { workerLoop(); });
+    LOG_INFO("WebhookManager started (%d workers)", kWorkers);
 }
 
 void WebhookManager::stop() {
     bool expected = true;
     if (!running_.compare_exchange_strong(expected, false)) return;
     qCv_.notify_all();
-    if (worker_.joinable()) worker_.join();
+    for (auto& t : workers_)
+        if (t.joinable()) t.join();
+    workers_.clear();
+    // 未处理的异步鉴权按放行回调，避免调用方永久挂起
+    std::deque<std::shared_ptr<Job>> left;
+    {
+        std::lock_guard<std::mutex> lk(qMu_);
+        left.swap(queue_);
+    }
+    for (auto& j : left)
+        if (j->onDone) j->onDone(AuthResult{});
     LOG_INFO("WebhookManager stopped");
 }
 
@@ -193,23 +204,21 @@ WebhookManager::AuthResult WebhookManager::authorizeUrl(
     job->body = buildBody(fields);
     job->needResult = true;
     job->retries = 0;
-    std::mutex m;
-    std::condition_variable cv;
-    job->mu = &m;
-    job->cv = &cv;
+    auto sync = std::make_shared<SyncWait>();
+    job->sync = sync;
     {
         std::lock_guard<std::mutex> lk(qMu_);
         queue_.push_back(job);
     }
     qCv_.notify_one();
 
-    std::unique_lock<std::mutex> lk(m);
-    if (!cv.wait_for(lk, std::chrono::milliseconds(timeoutMs + 500),
-                     [&] { return job->done; })) {
+    std::unique_lock<std::mutex> lk(sync->mu);
+    if (!sync->cv.wait_for(lk, std::chrono::milliseconds(timeoutMs + 500),
+                           [&] { return sync->done; })) {
         LOG_WARN("webhook authorize timeout url=%s", url.c_str());
-        return result;  // fail-open
+        return result;  // fail-open（sync 由 job 共享持有，worker 稍后写入是安全的）
     }
-    return job->result;
+    return sync->result;
 }
 
 WebhookManager::AuthResult WebhookManager::authorize(
@@ -233,6 +242,29 @@ WebhookManager::AuthResult WebhookManager::authorize(
     if (!enabled_.load() || !vhostCfg.enabled) return result;
     return authorizeUrl(urlForEvent(vhostCfg, event), vhostCfg.timeoutMs,
                         fields);
+}
+
+bool WebhookManager::hasHook(const std::string& event, const Config& vhostCfg) const {
+    return enabled_.load() && vhostCfg.enabled && !urlForEvent(vhostCfg, event).empty();
+}
+
+void WebhookManager::authorizeAsync(const std::string& event, const EventMap& fields,
+                                    const Config& vhostCfg, AuthDone done) {
+    if (!hasHook(event, vhostCfg) || !running_.load()) {
+        done(AuthResult{});  // 未配置：立即放行
+        return;
+    }
+    auto job = std::make_shared<Job>();
+    job->url = urlForEvent(vhostCfg, event);
+    job->body = buildBody(fields);
+    job->needResult = true;
+    job->retries = 0;
+    job->onDone = std::move(done);
+    {
+        std::lock_guard<std::mutex> lk(qMu_);
+        queue_.push_back(job);
+    }
+    qCv_.notify_one();
 }
 
 bool WebhookManager::postJson(const std::string& url,
@@ -346,12 +378,15 @@ void WebhookManager::workerLoop() {
             } else {
                 r.allowed = true;  // 网络失败 fail-open
             }
-            {
-                std::lock_guard<std::mutex> lk(*job->mu);
-                job->result = r;
-                job->done = true;
+            if (job->onDone) job->onDone(r);
+            if (job->sync) {
+                {
+                    std::lock_guard<std::mutex> lk(job->sync->mu);
+                    job->sync->result = r;
+                    job->sync->done = true;
+                }
+                job->sync->cv.notify_one();
             }
-            job->cv->notify_one();
         }
     }
 }

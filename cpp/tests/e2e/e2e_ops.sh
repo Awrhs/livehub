@@ -22,6 +22,8 @@ class H(http.server.BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(n).decode(errors="replace")
         log.write(self.path + " " + body.replace("\n", " ") + "\n")
+        if "slowme" in body:
+            import time; time.sleep(4)   # 模拟慢 webhook
         code = 1 if "denyme" in body else 0
         out = json.dumps({"code": code, "msg": "denied" if code else "ok"}).encode()
         self.send_response(200)
@@ -40,7 +42,7 @@ cat >"$WORK/streaming.conf" <<EOF
 HTTP_PORT=$HTTP
 RTMP_PORT=$RTMP
 SRT_PORT=49536
-IO_THREADS=2
+IO_THREADS=1
 HLS_OUTPUT_DIR=$WORK/hls
 JWT_SECRET=ops-secret-ops-secret-ops-secret
 ENABLE_RATE_LIMIT=true
@@ -85,6 +87,23 @@ sleep 3
 grep -q '/hook/unpublish.*ok1' "$WORK/hooks.log" && pass "on_unpublish 回调已触发" || fail "on_unpublish 未触发"
 push denyme 4 && fail "webhook 返回 code=1 时推流未被拒绝" || pass "webhook 返回 code=1 时推流被拒绝"
 grep -E 'denied|denyme' "$LOG" | head -2 | sed 's/^/    /'
+
+echo "== 慢 webhook 不阻塞 IO 线程（单 IO 线程，回调延迟 4s）"
+push ok2 25 &
+OK2=$!
+sleep 4
+push slowme 6 &
+SLOW=$!
+sleep 0.5
+t0=$(date +%s%N)
+timeout 15 ffprobe -v error -show_entries stream=codec_name -of csv=p=0 \
+    "rtmp://127.0.0.1:$RTMP/live/ok2" >"$WORK/ok2.probe" 2>&1
+dt=$(( ($(date +%s%N) - t0) / 1000000 ))
+grep -q h264 "$WORK/ok2.probe" && [ "$dt" -lt 2500 ] \
+    && pass "慢 webhook 等待期间同线程其它连接正常（拉流探测 ${dt}ms）" \
+    || fail "慢 webhook 阻塞了 IO 线程（拉流探测 ${dt}ms，$(cat "$WORK/ok2.probe" | head -1)）"
+wait "$SLOW" && pass "慢 webhook 放行后推流成功" || fail "慢 webhook 放行后推流失败"
+kill "$OK2" 2>/dev/null; wait "$OK2" 2>/dev/null
 
 echo "== 限流（/api/ 每分钟 20 次）"
 codes=""

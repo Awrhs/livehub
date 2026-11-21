@@ -2,6 +2,7 @@
 
 #include "config/Vhost.hpp"
 #include "net/TcpServer.hpp"
+#include "rtmp/RtmpConnection.hpp"
 #include "rtmp/MediaStream.hpp"
 
 #include <functional>
@@ -31,11 +32,9 @@ public:
         const std::string& app, const std::string& streamKey)>;
     using UnpublishHandler =
         std::function<void(const std::string& app, const std::string& streamKey)>;
-    /// 鉴权回调：host 为 tcUrl 解析出的 vhost，publish=true 推流。
-    /// reason 输出拒绝原因。返回 false 拒绝并关闭连接。
-    using AuthHandler = std::function<bool(
-        const std::string& host, const std::string& app,
-        const std::string& streamKey, bool publish, std::string* reason)>;
+    /// 异步鉴权回调：host 为 tcUrl 解析出的 vhost，publish=true 推流；
+    /// 结果经 done(ok, reason) 返回（可在任意线程调用）。
+    using AuthHandler = RtmpConnection::AuthCallback;
 
     RtmpServer(EventLoop* loop, uint16_t port = 1935,
                std::string app = "live");

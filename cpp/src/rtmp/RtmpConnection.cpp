@@ -220,68 +220,15 @@ void RtmpConnection::handleCommand(const RtmpMessage& msg) {
             return;
         }
 
-        // 鉴权：按 vhost 配置进行 webhook/JWT 校验（传入原始 key，含 ?token=）
-        if (onAuth_) {
-            std::string reason;
-            if (!onAuth_(host_, app_, rawKey, true, &reason)) {
-                LOG_WARN("RTMP publish denied: app=%s key=%s host=%s reason=%s",
-                         app_.c_str(), streamKey_.c_str(), host_.c_str(),
-                         reason.c_str());
-                onStatus(kDefaultStreamId, "error",
-                         "NetStream.Publish.BadName",
-                         reason.empty() ? "publish denied" : reason);
-                close();
-                return;
-            }
-        }
-
-        publishing_ = true;
-        // 创建/绑定 MediaStream 由上层完成
-        if (onPublish_) {
-            auto ms = std::make_shared<MediaStream>(streamKey_, app_);
-            ms->setHasPublisher(true);
-            ms->setVhost(host_);
-            ms->touch(Timestamp::now().microSecondsSinceEpoch() / 1000);
-            stream_ = ms;
-            if (!onPublish_(shared_from_this(), app_, streamKey_, ms)) {
-                // 同名流正在推送：拒绝，避免覆盖（流劫持）
-                LOG_WARN("RTMP publish rejected, stream busy: %s",
-                         streamKey_.c_str());
-                onStatus(kDefaultStreamId, "error", "NetStream.Publish.BadName",
-                         "stream already publishing: " + streamKey_);
-                close();
-                return;
-            }
-        }
-        onStatus(kDefaultStreamId, "status", "NetStream.Publish.Start",
-                 "Publishing " + streamKey_);
+        // 鉴权（异步：webhook 等慢操作不阻塞 IO 线程），结果在 finishPublish 中处理
+        requestAuth(true, rawKey);
     } else if (cmd == "play") {
         std::string rawKey, query;
         Amf0Value keyVal;
         if (keyVal.decode(buf)) rawKey = keyVal.asString();
         splitStreamKey(rawKey, &streamKey_, &query);
 
-        // 鉴权（传入原始 key，含 ?token=）
-        if (onAuth_) {
-            std::string reason;
-            if (!onAuth_(host_, app_, rawKey, false, &reason)) {
-                LOG_WARN("RTMP play denied: app=%s key=%s host=%s reason=%s",
-                         app_.c_str(), streamKey_.c_str(), host_.c_str(),
-                         reason.c_str());
-                onStatus(kDefaultStreamId, "error", "NetStream.Play.Failed",
-                         reason.empty() ? "play denied" : reason);
-                close();
-                return;
-            }
-        }
-
-        playing_ = true;
-        sendStreamBegin(kDefaultStreamId);
-        onStatus(kDefaultStreamId, "status", "NetStream.Play.Start",
-                 "Start playing " + streamKey_);
-        if (onPlay_) {
-            onPlay_(shared_from_this(), app_, streamKey_);
-        }
+        requestAuth(false, rawKey);
     } else if (cmd == "deleteStream") {
         close();
     } else if (cmd == "_checkbandwidth" || cmd == "getStreamLength") {
@@ -513,6 +460,79 @@ void RtmpConnection::sendMessage(const RtmpMessage& msg) {
     Buffer out;
     chunkWriter_.write(out, msg);
     c->send(&out);
+}
+
+void RtmpConnection::requestAuth(bool publish, const std::string& rawKey) {
+    if (authPending_ || publishing_ || playing_) return;  // 忽略重复命令
+    if (!onAuth_) {
+        publish ? finishPublish(true, "") : finishPlay(true, "");
+        return;
+    }
+    authPending_ = true;
+    std::weak_ptr<RtmpConnection> weak = shared_from_this();
+    auto c = conn_.lock();
+    EventLoop* loop = c ? c->getLoop() : nullptr;
+    onAuth_(host_, app_, rawKey, publish,
+            [weak, loop, publish](bool ok, const std::string& reason) {
+                auto apply = [weak, publish, ok, reason] {
+                    auto self = weak.lock();
+                    if (!self) return;
+                    self->authPending_ = false;
+                    publish ? self->finishPublish(ok, reason)
+                            : self->finishPlay(ok, reason);
+                };
+                // 回到连接所属 IO 线程（同线程同步完成时立即执行）
+                if (loop) loop->runInLoop(apply);
+                else apply();
+            });
+}
+
+void RtmpConnection::finishPublish(bool ok, const std::string& reason) {
+    if (closed_) return;
+    if (!ok) {
+        LOG_WARN("RTMP publish denied: app=%s key=%s host=%s reason=%s",
+                 app_.c_str(), streamKey_.c_str(), host_.c_str(), reason.c_str());
+        onStatus(kDefaultStreamId, "error", "NetStream.Publish.BadName",
+                 reason.empty() ? "publish denied" : reason);
+        close();
+        return;
+    }
+    publishing_ = true;
+    // 创建/绑定 MediaStream 由上层完成
+    if (onPublish_) {
+        auto ms = std::make_shared<MediaStream>(streamKey_, app_);
+        ms->setHasPublisher(true);
+        ms->setVhost(host_);
+        ms->touch(Timestamp::now().microSecondsSinceEpoch() / 1000);
+        stream_ = ms;
+        if (!onPublish_(shared_from_this(), app_, streamKey_, ms)) {
+            // 同名流正在推送：拒绝，避免覆盖（流劫持）
+            LOG_WARN("RTMP publish rejected, stream busy: %s", streamKey_.c_str());
+            onStatus(kDefaultStreamId, "error", "NetStream.Publish.BadName",
+                     "stream already publishing: " + streamKey_);
+            close();
+            return;
+        }
+    }
+    onStatus(kDefaultStreamId, "status", "NetStream.Publish.Start",
+             "Publishing " + streamKey_);
+}
+
+void RtmpConnection::finishPlay(bool ok, const std::string& reason) {
+    if (closed_) return;
+    if (!ok) {
+        LOG_WARN("RTMP play denied: app=%s key=%s host=%s reason=%s",
+                 app_.c_str(), streamKey_.c_str(), host_.c_str(), reason.c_str());
+        onStatus(kDefaultStreamId, "error", "NetStream.Play.Failed",
+                 reason.empty() ? "play denied" : reason);
+        close();
+        return;
+    }
+    playing_ = true;
+    sendStreamBegin(kDefaultStreamId);
+    onStatus(kDefaultStreamId, "status", "NetStream.Play.Start",
+             "Start playing " + streamKey_);
+    if (onPlay_) onPlay_(shared_from_this(), app_, streamKey_);
 }
 
 void RtmpConnection::splitStreamKey(const std::string& raw, std::string* key,

@@ -36,11 +36,12 @@ public:
                            const std::string& app, const std::string& streamKey)>;
     using CloseCallback =
         std::function<void(const std::shared_ptr<RtmpConnection>&)>;
-    /// 鉴权回调：publish=true 为推流，false 为拉流。
-    /// 返回 true 放行；返回 false 时 *reason 填入拒绝原因（可空）。
-    using AuthCallback = std::function<bool(
+    /// 异步鉴权：publish=true 为推流。结果经 done(ok, reason) 返回，可在任意线程调用
+    /// （连接会切回自身 IO 线程继续处理）。避免 webhook 等慢操作阻塞 IO 线程。
+    using AuthDone = std::function<void(bool ok, const std::string& reason)>;
+    using AuthCallback = std::function<void(
         const std::string& host, const std::string& app,
-        const std::string& streamKey, bool publish, std::string* reason)>;
+        const std::string& streamKey, bool publish, AuthDone done)>;
 
     RtmpConnection(TcpConnectionPtr conn, std::string app = "live");
 
@@ -70,6 +71,10 @@ public:
 
     void close();
 
+    /// 是否已计入 vhost 推流/观看配额（由 RtmpServer 在成功时设置，关闭时据此回收）
+    void setQuotaCounted(bool on) { quotaCounted_ = on; }
+    bool quotaCounted() const { return quotaCounted_; }
+
     /// 播放：发送 metadata，回放 GOP 并订阅实时包
     void startPlayback(const std::shared_ptr<MediaStream>& ms);
     /// 播放请求的流不存在
@@ -78,6 +83,9 @@ public:
 private:
     void onHandshakeDone();
     void onReadImpl(Buffer* buf);
+    void requestAuth(bool publish, const std::string& rawKey);
+    void finishPublish(bool ok, const std::string& reason);
+    void finishPlay(bool ok, const std::string& reason);
     void maybeSendAck();
     void onCompleteMessage(RtmpMessage&& msg);
     void handleCommand(const RtmpMessage& msg);
@@ -112,6 +120,8 @@ private:
     uint64_t lastAckBytes_ = 0;
     size_t lastUnconsumed_ = 0;
     bool closed_ = false;
+    bool authPending_ = false;
+    bool quotaCounted_ = false;
     bool publishing_ = false;
     bool playing_ = false;
     uint32_t clientChunkSize_ = 128;
