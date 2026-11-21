@@ -43,6 +43,7 @@ private:
     Channel acceptChannel_;
     NewConnectionCallback newConnectionCallback_;
     bool listening_;
+    int idleFd_ = -1;  // 预留 fd，用于 EMFILE 时腾挪
 };
 
 }  // namespace streaming

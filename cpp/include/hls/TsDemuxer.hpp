@@ -66,10 +66,10 @@ private:
     std::vector<PidState> pids_{8192};
     std::vector<uint8_t> leftover_;
 
-    uint32_t videoFirstPts_ = 0;
-    bool videoHaveFirst_ = false;
-    uint32_t audioFirstPts_ = 0;
-    bool audioHaveFirst_ = false;
+    bool haveBase_ = false;   // 音视频共同时间基准（90kHz）
+    int64_t base90_ = 0;
+    uint32_t lastMs_ = 0;
+    uint32_t toMs(int64_t ts90);
 };
 
 }  // namespace streaming

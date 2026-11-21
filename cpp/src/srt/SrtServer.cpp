@@ -142,7 +142,9 @@ void SrtServer::stop() {
     if (eid_ >= 0) srt_epoll_release(eid_);
     if (listener_ >= 0) srt_close(listener_);
     eid_ = listener_ = -1;
-    srt_cleanup();
+    // 不调用 srt_cleanup()：libsrt 1.5.x 在进程退出的全局析构中会再次清理，
+    // 提前 cleanup 会导致退出时段错误（Docker 冒烟测试捕获的崩溃栈）
+
 }
 
 void SrtServer::acceptOne() {

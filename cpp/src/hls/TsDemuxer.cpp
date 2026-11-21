@@ -69,7 +69,9 @@ void TsDemuxer::handlePacket(const uint8_t* p) {
         uint8_t alen = p[off];
         off += 1 + alen;
     }
-    if (adapt == 1 || adapt == 0) return;  // 无 payload
+    // adaptation_field_control：1=仅 payload，2=仅 adaptation，3=两者
+    //（原实现写反，丢弃了绝大多数“仅 payload”的包，解复用不出任何帧）
+    if (adapt == 0 || adapt == 2) return;
     if (off >= 188) return;
 
     const uint8_t* payload = p + off;
@@ -187,13 +189,17 @@ static std::vector<uint8_t> annexbToConfig(const std::vector<uint8_t>& pes,
         }
         size_t start = i + scLen;
         size_t next = start;
+        bool found = false;
         while (next + 2 < n) {
             if (pes[next] == 0 && pes[next + 1] == 0 &&
                 (pes[next + 2] == 1 ||
-                 (next + 3 < n && pes[next + 2] == 0 && pes[next + 3] == 1)))
+                 (next + 3 < n && pes[next + 2] == 0 && pes[next + 3] == 1))) {
+                found = true;
                 break;
+            }
             ++next;
         }
+        if (!found) next = n;  // 最后一个 NAL 延伸到缓冲末尾（原实现截掉末尾 2 字节）
         size_t naluLen = next - start;
         if (naluLen > 0) {
             uint8_t nalType;
@@ -203,7 +209,9 @@ static std::vector<uint8_t> annexbToConfig(const std::vector<uint8_t>& pes,
                 nalType = pes[start] & 0x1F;
 
             bool isConfig = false;
-            if (hevc) {
+            bool isAud = hevc ? (nalType == 35) : (nalType == 9);
+            if (isAud) isConfig = true;  // AUD 不进入 AVCC/HVCC 帧数据
+            else if (hevc) {
                 if (nalType == 32) { vps.assign(pes.begin() + start, pes.begin() + start + naluLen); isConfig = true; }
                 else if (nalType == 33) { sps.assign(pes.begin() + start, pes.begin() + start + naluLen); isConfig = true; }
                 else if (nalType == 34) { pps.assign(pes.begin() + start, pes.begin() + start + naluLen); isConfig = true; }
@@ -265,6 +273,19 @@ void TsDemuxer::flushVideoConfig(PidState& st, bool hevc) {
     }
 }
 
+uint32_t TsDemuxer::toMs(int64_t ts90) {
+    // 音视频共用时间基准（首个带时间戳的 PES），避免两路各自从 0 开始导致不同步
+    if (ts90 < 0) return lastMs_;
+    if (!haveBase_) {
+        haveBase_ = true;
+        base90_ = ts90;
+    }
+    int64_t d = ts90 - base90_;
+    if (d < 0) d += (int64_t(1) << 33);  // 33 位 PTS 回绕
+    lastMs_ = static_cast<uint32_t>(d / 90);
+    return lastMs_;
+}
+
 void TsDemuxer::emitVideo(PidState& st) {
     bool hevc = (st.streamType == kStreamTypeHevc);
 
@@ -274,15 +295,7 @@ void TsDemuxer::emitVideo(PidState& st) {
     flushVideoConfig(st, hevc);
     if (sample.empty()) return;
 
-    if (!videoHaveFirst_) {
-        videoHaveFirst_ = true;
-        videoFirstPts_ = static_cast<uint32_t>(st.dts >= 0 ? st.dts : st.pts);
-    }
-    uint32_t tsMs = 0;
-    if (st.dts >= 0) {
-        int64_t d = st.dts - videoFirstPts_;
-        tsMs = static_cast<uint32_t>(d / 90);
-    }
+    uint32_t tsMs = toMs(st.dts >= 0 ? st.dts : st.pts);
 
     // 判断关键帧（HEVC IDR/CRA；AVC IDR）
     bool keyframe = false;
@@ -354,16 +367,14 @@ void TsDemuxer::emitAudio(PidState& st) {
         pkt.audioCodec = AudioCodec::kMp3;
         pkt.data.push_back(0x2A);  // MP3, 44100, stereo, 16-bit
         pkt.data.insert(pkt.data.end(), st.pes.begin(), st.pes.end());
-        if (st.pts >= 0) {
-            if (!audioHaveFirst_) { audioHaveFirst_ = true; audioFirstPts_ = st.pts; }
-            pkt.timestamp = static_cast<uint32_t>((st.pts - audioFirstPts_) / 90);
-        }
+        pkt.timestamp = toMs(st.pts);
         if (cb_) cb_(pkt);
         return;
     }
 
-    // AAC ADTS：逐帧切分（ADTS sync 0xFFF）
+    // AAC ADTS：逐帧切分（ADTS sync 0xFFF）；同一 PES 内第 k 帧时间戳 = PTS + k*1024 采样
     size_t i = 0;
+    int frameIdx = 0;
     const auto& pes = st.pes;
     while (i + 7 < pes.size()) {
         if ((pes[i] & 0xFF) != 0xFF || (pes[i + 1] & 0xF0) != 0xF0) {
@@ -386,20 +397,21 @@ void TsDemuxer::emitAudio(PidState& st) {
             flushAudioConfig(st);
         }
 
-        if (frameLen >= 7 && i + frameLen <= pes.size()) {
+        int hdrLen = (pes[i + 1] & 0x01) ? 7 : 9;  // protection_absent=0 时带 2 字节 CRC
+        if (frameLen > hdrLen && i + frameLen <= pes.size()) {
             MediaPacket pkt;
             pkt.type = MediaPacket::kAudio;
             pkt.audioCodec = AudioCodec::kAac;
             pkt.data.push_back(0xAF);
             pkt.data.push_back(0x01);  // AAC raw
-            pkt.data.insert(pkt.data.end(), pes.begin() + i + 7,
+            pkt.data.insert(pkt.data.end(), pes.begin() + i + hdrLen,
                             pes.begin() + i + frameLen);
             if (st.pts >= 0) {
-                if (!audioHaveFirst_) { audioHaveFirst_ = true; audioFirstPts_ = st.pts; }
-                pkt.timestamp =
-                    static_cast<uint32_t>((st.pts - audioFirstPts_) / 90);
+                int64_t pts = st.pts + static_cast<int64_t>(frameIdx) * 1024 * 90000 / sampleRate;
+                pkt.timestamp = toMs(pts);
             }
             if (cb_) cb_(pkt);
+            ++frameIdx;
             i += frameLen;
         } else {
             break;

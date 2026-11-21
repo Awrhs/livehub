@@ -95,13 +95,13 @@ public:
         return ::listen(sockfd_, backlog) == 0;
     }
 
+    /// 接受连接：返回的 fd 为非阻塞 + CLOEXEC。
+    /// （原实现用 ::accept，连接 fd 不会继承监听 socket 的 O_NONBLOCK——所有连接都是阻塞的，
+    ///  任一不读数据的客户端都会让 write() 阻塞，卡死所在 IO 线程上的全部连接。）
     int accept(struct sockaddr_in* peeraddr = nullptr) {
         socklen_t addrlen = sizeof(struct sockaddr_in);
-        if (peeraddr) {
-            return ::accept(sockfd_, reinterpret_cast<struct sockaddr*>(peeraddr),
-                             &addrlen);
-        }
-        return ::accept(sockfd_, nullptr, nullptr);
+        return ::accept4(sockfd_, reinterpret_cast<struct sockaddr*>(peeraddr),
+                         peeraddr ? &addrlen : nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
     }
 
     void shutdownWrite() {

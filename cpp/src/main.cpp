@@ -97,6 +97,7 @@ std::vector<Profile> parseProfileSpec(const std::string& spec) {
 
 }  // namespace
 
+#if !defined(__SANITIZE_ADDRESS__) && !defined(__SANITIZE_THREAD__)
 namespace {
 // 致命信号时打印调用栈（生产环境崩溃排查；需链接 -rdynamic 以获得符号名）
 void crashHandler(int sig) {
@@ -113,6 +114,7 @@ void installCrashHandler() {
     for (int s : {SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGABRT}) ::signal(s, crashHandler);
 }
 }  // namespace
+#endif
 
 int main(int argc, char* argv[]) {
     ::signal(SIGPIPE, SIG_IGN);
