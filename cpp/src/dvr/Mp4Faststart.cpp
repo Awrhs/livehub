@@ -110,7 +110,7 @@ bool Mp4Faststart::relocateBuffer(std::vector<uint8_t>& data) {
     size_t moovStart = 0, moovSize = 0, moovHeader = 0;
     bool foundFtyp = false, foundMoov = false;
     // 记录 moov 之前（除 ftyp）的 box 总长度 —— 这些 box 将被后移 moovSize
-    uint64_t beforeMoov = 0;
+    [[maybe_unused]] uint64_t beforeMoov = 0;
 
     while (pos + 8 <= len) {
         uint64_t size = rd32(data.data() + pos);

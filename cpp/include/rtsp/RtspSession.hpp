@@ -60,10 +60,10 @@ private:
     bool haveVideoBase_ = false;
 
     // 接收侧交织帧重组
-    bool inFrame_ = false;
-    uint8_t frameChannel_ = 0;
-    uint16_t frameLen_ = 0;
-    uint16_t frameGot_ = 0;
+    [[maybe_unused]] bool inFrame_ = false;
+    [[maybe_unused]] uint8_t frameChannel_ = 0;
+    [[maybe_unused]] uint16_t frameLen_ = 0;
+    [[maybe_unused]] uint16_t frameGot_ = 0;
     std::vector<uint8_t> frameBuf_;
 };
 

@@ -35,7 +35,7 @@ private:
     void onConnection(const TcpConnectionPtr& conn);
     void onMessage(const TcpConnectionPtr& conn, Buffer* buf, Timestamp);
 
-    EventLoop* loop_;
+    [[maybe_unused]] EventLoop* loop_;
     uint16_t port_;
     TcpServer server_;
     StreamResolver resolver_;

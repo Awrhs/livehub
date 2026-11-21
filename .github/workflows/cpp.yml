@@ -33,7 +33,7 @@ jobs:
             cc: clang
             cxx: clang++
             deps: "libssl-dev"
-            cmake_flags: "-DCMAKE_BUILD_TYPE=Release"
+            cmake_flags: "-DCMAKE_BUILD_TYPE=Release -DENABLE_WERROR=ON"
 
     name: ${{ matrix.name }}
     steps:

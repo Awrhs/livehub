@@ -64,7 +64,9 @@ void ProxyHandler::registerRoutes(HttpServer& server) {
                 resp.setBody("{\"error\":\"no upstream selector\"}");
                 return;
             }
-            auto [host, port] = selector_(key);
+            auto target = selector_(key);
+            std::string host = target.first;   // 结构化绑定不能被 lambda 捕获（C++20 起才支持）
+            auto port = target.second;
             if (host.empty() || port == 0) {
                 resp.setStatusCode(HttpStatusCode::k502BadGateway);
                 resp.setBody("{\"error\":\"no upstream\"}");

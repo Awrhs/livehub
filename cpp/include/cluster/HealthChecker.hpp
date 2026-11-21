@@ -93,7 +93,7 @@ private:
 
     // 节点 id -> 进行中的探测（用一个简单的计数 id 标识）
     std::map<std::string, uint64_t> inFlight_;
-    uint64_t nextProbeId_ = 1;
+    [[maybe_unused]] uint64_t nextProbeId_ = 1;
 };
 
 }  // namespace streaming

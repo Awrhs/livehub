@@ -48,7 +48,7 @@ void StreamsApi::attach(HttpServer& server) {
 
     server.router().get(
         "/api/streams/:key",
-        [this](const HttpRequest& req, HttpResponse& resp) {
+        [](const HttpRequest& req, HttpResponse& resp) {
             std::string key = req.param("key");
             auto st = StatsRegistry::instance().get(key);
             if (!st) {

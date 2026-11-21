@@ -32,7 +32,7 @@ private:
 
     NaluCallback cb_;
     // FU-A 重组缓冲
-    uint16_t fuStartSeq_ = 0;
+    [[maybe_unused]] uint16_t fuStartSeq_ = 0;
     uint8_t fuNalType_ = 0;
     uint8_t fuNalRefIdc_ = 0;
     uint32_t fuTs_ = 0;

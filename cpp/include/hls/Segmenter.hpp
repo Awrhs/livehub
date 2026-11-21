@@ -104,8 +104,8 @@ private:
 
     std::string outputDir_;
     std::string streamName_;
-    int targetDuration_;
-    int windowSize_;
+    [[maybe_unused]] int targetDuration_;
+    [[maybe_unused]] int windowSize_;
 
     std::unique_ptr<TsMuxer> muxer_;
     std::shared_ptr<State> st_;

@@ -160,7 +160,7 @@ private:
     std::atomic<size_t> queuedBytes_{0};  // 跨线程 send 已投递、尚未执行
     std::atomic<size_t> outputBytes_{0};  // outputBuffer_ 大小的镜像（loop 线程写）
 
-    struct sockaddr_in localAddr_;
+    [[maybe_unused]] struct sockaddr_in localAddr_;
     struct sockaddr_in peerAddr_;
 
     ConnectionCallback connectionCallback_;

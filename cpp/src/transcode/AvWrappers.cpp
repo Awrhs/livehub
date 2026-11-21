@@ -130,6 +130,6 @@ int SwrContextWrapper::convert(uint8_t** out, int outCount,
 
 // 无 libav：stub 不需要额外定义（全部 inline 于头文件），
 // 此翻译单元留空以满足构建系统的源文件收集。
-namespace streaming { namespace { int av_wrappers_stub_anchor = 0; }}
+namespace streaming { namespace { [[maybe_unused]] int av_wrappers_stub_anchor = 0; }}
 
 #endif  // HAVE_LIBAV

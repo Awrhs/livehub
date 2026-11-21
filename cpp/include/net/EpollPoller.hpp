@@ -55,7 +55,7 @@ private:
     int epollFd_;
     std::vector<struct epoll_event> events_;
     std::unordered_map<int, Channel*> channels_;
-    EventLoop* ownerLoop_;
+    [[maybe_unused]] EventLoop* ownerLoop_;
 };
 
 }  // namespace streaming

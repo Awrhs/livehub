@@ -58,7 +58,7 @@ private:
     std::string password_;
     bool selected_ = false;
     sockaddr_in peer_{};
-    uint32_t localIpv4_ = 0;  // 候选地址（host order）
+    [[maybe_unused]] uint32_t localIpv4_ = 0;  // 候选地址（host order）
     CandidateCallback onCandidate_;
     DataCallback onData_;
 };

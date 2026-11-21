@@ -89,7 +89,8 @@
 
 ### P1 —— 其它已知问题
 
-- [ ] SIGHUP 热加载：Config 顶层标量在其它线程读取时被直接改写（数据竞争）
+- [x] SIGHUP 热加载：只原子替换 vhost 表（顶层设置需重启），消除数据竞争；E2E 验证
+- [x] 日志刷盘：WARN 以上立即刷新，其余至多 200ms（原实现全缓冲，崩溃时丢失最后日志）
 - [x] webhook：RTMP 推/拉流鉴权异步化；修复同步等待超时后访问已销毁栈对象（UAF）；worker 扩至 4 个
 - [ ] webhook：HTTP-FLV / WS-FLV / SRT 拉流的 on_play 仍为同步调用（需 HttpServer 支持延迟响应）
 - [ ] AsyncFileWriter 队列满时丢弃写入会损坏 HLS 分片，可改为丢弃整个分片

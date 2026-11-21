@@ -124,7 +124,7 @@ private:
     /// 归档终态任务（调用方持锁）
     void archiveFinishedLocked(const std::shared_ptr<TranscodeTask>& task);
 
-    EventLoop* loop_;
+    [[maybe_unused]] EventLoop* loop_;
     int maxConcurrent_;
     std::unique_ptr<ProcessManager> procManager_;
 

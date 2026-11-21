@@ -45,7 +45,7 @@ private:
     void onIceData(const uint8_t* data, size_t len, const sockaddr_in& peer);
     void onNalu(const uint8_t* nalu, size_t len, uint32_t rtpTs, bool marker);
 
-    EventLoop* loop_;
+    [[maybe_unused]] EventLoop* loop_;
     std::unique_ptr<IceAgent> ice_;
     std::unique_ptr<DtlsTransport> dtls_;
     std::unique_ptr<SrtpSession> srtpRecv_;
@@ -59,7 +59,7 @@ private:
     std::atomic<bool> dtlsReady_{false};
     uint32_t clockBase_ = 0;
     bool haveBase_ = false;
-    uint32_t lastRtpTs_ = 0;
+    [[maybe_unused]] uint32_t lastRtpTs_ = 0;
     std::vector<uint8_t> sps_, pps_;
 };
 

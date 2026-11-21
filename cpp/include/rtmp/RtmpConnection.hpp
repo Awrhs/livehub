@@ -125,7 +125,7 @@ private:
     bool publishing_ = false;
     bool playing_ = false;
     uint32_t clientChunkSize_ = 128;
-    double nextTransactionId_ = 1.0;
+    [[maybe_unused]] double nextTransactionId_ = 1.0;
 
     std::shared_ptr<MediaStream> stream_;
     uint64_t subscriberId_ = 0;

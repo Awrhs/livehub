@@ -41,7 +41,9 @@ void TcpServer::stop() {
         if (item.second) byLoop[item.second->getLoop()].push_back(item.second);
     }
     std::vector<std::future<void>> done;
-    for (auto& [loop, conns] : byLoop) {
+    for (auto& entry : byLoop) {
+        EventLoop* loop = entry.first;
+        const auto conns = entry.second;
         if (loop->isInLoopThread()) {
             // 连接就在当前（已停止的 base）loop 上：直接执行，避免等待自身造成死锁
             for (const auto& c : conns) c->shutdownInOwnLoop();

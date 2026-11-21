@@ -52,7 +52,7 @@ private:
     void onVideoPacket(const MediaPacket& pkt);
     void onAudioPacket(const MediaPacket& pkt);
 
-    EventLoop* loop_;
+    [[maybe_unused]] EventLoop* loop_;
     std::unique_ptr<IceAgent> ice_;
     std::unique_ptr<DtlsTransport> dtls_;
     std::unique_ptr<SrtpSession> srtpSend_;

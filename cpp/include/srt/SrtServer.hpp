@@ -71,7 +71,7 @@ private:
     void acceptOne();
     void closeSession(int sock);
 
-    uint16_t port_;
+    [[maybe_unused]] uint16_t port_;
     std::string ip_;
     StreamResolver resolver_;
     PlayResolver playResolver_;
@@ -80,8 +80,8 @@ private:
 
     std::atomic<bool> running_{false};
     std::thread thread_;
-    int listener_ = -1;
-    int eid_ = -1;
+    [[maybe_unused]] int listener_ = -1;
+    [[maybe_unused]] int eid_ = -1;
 
     mutable std::mutex mu_;
     std::map<int, std::shared_ptr<Session>> sessions_;
