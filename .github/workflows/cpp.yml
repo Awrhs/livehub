@@ -192,3 +192,36 @@ jobs:
           name: soak-artifacts
           path: soak-artifacts
           retention-days: 7
+
+  e2e-ext:
+    name: "E2E 扩展模块（实验性：HEVC/RTSP/SRT/DVR）"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ ffmpeg libssl-dev
+
+      - name: Build (Debug + ASan)
+        run: |
+          cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Debug -DENABLE_ASAN=ON -DENABLE_TESTS=OFF -DENABLE_TOOLS=OFF
+          cmake --build cpp/build --target streaming_server -j"$(nproc)"
+
+      - name: Run extension E2E
+        timeout-minutes: 8
+        env:
+          ASAN_OPTIONS: "detect_leaks=0:halt_on_error=0"
+          E2E_ARTIFACT_DIR: ${{ github.workspace }}/ext-artifacts
+        run: cpp/tests/e2e/e2e_ext.sh "$PWD/cpp/build/bin/streaming_server"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ext-artifacts
+          path: ext-artifacts
+          retention-days: 7
