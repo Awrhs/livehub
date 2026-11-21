@@ -1,5 +1,13 @@
 #include "srt/SrtServer.hpp"
 
+#ifdef HAVE_LIBSRT
+#include <arpa/inet.h>
+#include <srt/srt.h>
+// srt.h 间接包含 <syslog.h>，其 LOG_INFO/LOG_DEBUG 等常量会与本项目日志宏冲突
+#undef LOG_INFO
+#undef LOG_DEBUG
+#endif
+
 #include "core/Logger.hpp"
 #include "hls/FlvToTs.hpp"
 #include "hls/TsDemuxer.hpp"
@@ -8,11 +16,6 @@
 #include <chrono>
 #include <cstring>
 #include <vector>
-
-#ifdef HAVE_LIBSRT
-#include <arpa/inet.h>
-#include <srt/srt.h>
-#endif
 
 namespace streaming {
 
