@@ -9,6 +9,7 @@
 namespace streaming {
 
 class HttpServer;
+class HttpRequest;
 class MediaStream;
 
 /**
@@ -32,8 +33,14 @@ public:
     /// 注册为 HttpServer 的升级回调（内部检查路径）
     void attach(HttpServer& server);
 
+    /// 播放鉴权（与 HTTP-FLV/HLS 一致）；未设置则不鉴权
+    using PlayAuth = std::function<bool(const HttpRequest& req, const std::string& key,
+                                        std::string* reason)>;
+    void setPlayAuth(PlayAuth a) { playAuth_ = std::move(a); }
+
 private:
     StreamResolver resolver_;
+    PlayAuth playAuth_;
 };
 
 }  // namespace streaming

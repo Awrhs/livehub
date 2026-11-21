@@ -34,6 +34,9 @@ public:
     /// 添加放行前缀
     void allow(const std::string& pathPrefix) { whitelist_.insert(pathPrefix); }
 
+    /// 静态管理令牌（常量时间比较）。为空则只接受 role=admin 的 JWT。
+    void setAdminToken(std::string t) { adminToken_ = std::move(t); }
+
     /// 注入 JWT 注销黑名单（可选；不注入则不校验注销）
     void setBlacklist(std::shared_ptr<TokenBlacklist> bl) {
         blacklist_ = std::move(bl);
@@ -49,6 +52,7 @@ private:
     std::shared_ptr<Jwt> jwt_;
     std::shared_ptr<TokenBlacklist> blacklist_;
     std::unordered_set<std::string> whitelist_;
+    std::string adminToken_;
 };
 
 }  // namespace streaming

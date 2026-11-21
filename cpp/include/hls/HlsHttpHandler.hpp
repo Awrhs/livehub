@@ -9,6 +9,8 @@
 namespace streaming {
 
 class HttpServer;
+class HttpRequest;
+class HttpResponse;
 class HlsManager;
 class StreamCache;
 class MediaStream;
@@ -36,15 +38,25 @@ public:
     /// 设置 HTTP-FLV 流解析器（设置后 .flv 请求才会被处理）
     void setFlvResolver(StreamResolver r) { flvResolver_ = std::move(r); }
 
+    /// 播放鉴权：key 为流名；hlsPoll=true 表示 m3u8/分片请求（高频，不应触发 webhook）。
+    /// 返回 false 时 *reason 为拒绝原因。未设置则不鉴权。
+    using PlayAuth = std::function<bool(const HttpRequest& req, const std::string& key,
+                                        bool hlsPoll, std::string* reason)>;
+    void setPlayAuth(PlayAuth a) { playAuth_ = std::move(a); }
+
     void registerRoutes(HttpServer& server);
 
 private:
-    bool servePlaylist(const std::string& stream, class HttpResponse& resp);
+    bool servePlaylist(const std::string& stream, class HttpResponse& resp,
+                       const std::string& token = "");
     void serveFlv(const std::string& key, class HttpResponse& resp);
 
     HlsManager* manager_;
     StreamCache* cache_;
     StreamResolver flvResolver_;
+    PlayAuth playAuth_;
+    bool checkAuth(const HttpRequest& req, const std::string& key, bool hlsPoll,
+                   HttpResponse& resp);
 };
 
 }  // namespace streaming

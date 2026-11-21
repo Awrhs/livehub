@@ -121,6 +121,14 @@ void WsFlvHandler::attach(HttpServer& server) {
             std::string wsKey = req.header("Sec-WebSocket-Key");
             if (wsKey.empty()) return false;
 
+            if (playAuth_) {
+                std::string reason;
+                if (!playAuth_(req, key, &reason)) {
+                    conn->send("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n");
+                    conn->shutdown();
+                    return true;
+                }
+            }
             auto ms = resolver_ ? resolver_(key) : nullptr;
             if (!ms) {
                 conn->send("HTTP/1.1 404 Not Found\r\n\r\n");

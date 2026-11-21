@@ -43,6 +43,10 @@ public:
     int64_t cacheSizeMB() const { return cacheSizeMB_; }
 
     std::string jwtSecret() const { return jwtSecret_; }
+    /// 启动时修正 JWT 密钥（为空则生成随机密钥）
+    void setJwtSecret(std::string s) { jwtSecret_ = std::move(s); }
+    /// 管理接口令牌（Authorization: Bearer <ADMIN_TOKEN>）；为空则管理接口关闭
+    std::string adminToken() const { return adminToken_; }
     bool enableRateLimit() const { return enableRateLimit_; }
     int rateLimitPerSec() const { return rateLimitPerSec_; }
     int rateLimitBurst() const { return rateLimitBurst_; }
@@ -101,7 +105,9 @@ private:
     std::string hlsOutputDir_ = "./hls";
     int64_t cacheSizeMB_ = 256;
 
-    std::string jwtSecret_ = "streaming-server-secret-key-2024";
+    // 不再内置默认密钥（公开源码中的默认值等于任何人都能伪造 token）
+    std::string jwtSecret_;
+    std::string adminToken_;
     bool enableRateLimit_ = true;
     int rateLimitPerSec_ = 100;
     int rateLimitBurst_ = 200;

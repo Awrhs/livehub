@@ -117,6 +117,8 @@ void Config::loadFromEnv() {
     if (!v.empty()) hlsOutputDir_ = v;
     v = getEnv("STREAM_JWT_SECRET", "");
     if (!v.empty()) jwtSecret_ = v;
+    v = getEnv("STREAM_ADMIN_TOKEN", "");
+    if (!v.empty()) adminToken_ = v;
     v = getEnv("STREAM_LOG_LEVEL", "");
     if (!v.empty()) logLevel_ = v;
     v = getEnv("STREAM_LOG_JSON", "");
@@ -178,6 +180,7 @@ void Config::applyKv(const std::string& keyIn, const std::string& value) {
     else if (key == "HLS_OUTPUT_DIR") hlsOutputDir_ = value;
     else if (key == "CACHE_SIZE_MB") cacheSizeMB_ = asInt();
     else if (key == "JWT_SECRET") jwtSecret_ = value;
+    else if (key == "ADMIN_TOKEN") adminToken_ = value;
     else if (key == "LOG_LEVEL") logLevel_ = value;
     else if (key == "LOG_JSON") logJson_ = (value != "0" && value != "false");
     else if (key == "ENABLE_RATE_LIMIT")

@@ -42,8 +42,12 @@ HLS_OUTPUT_DIR=$WORK/hls
 JWT_SECRET=e2e-secret-e2e-secret-e2e-secret
 LOG_LEVEL=INFO
 ENABLE_RATE_LIMIT=false
+ADMIN_TOKEN=e2e-admin-token-0123456789
 [vhost:__default__]
+[vhost:localhost]
+enable_auth=true
 EOF
+ADM="e2e-admin-token-0123456789"
 
 echo "== 启动服务器"
 ( cd "$WORK" && exec "$BIN" "$WORK/streaming.conf" ) >"$LOG" 2>&1 &
@@ -204,9 +208,50 @@ done
 echo "== API"
 curl -sf --max-time 5 "http://127.0.0.1:$HTTP/metrics" >"$WORK/metrics.txt" \
     && pass "/metrics 可访问 ($(wc -l <"$WORK/metrics.txt") 行)" || fail "/metrics 不可访问"
-curl -sf --max-time 5 "http://127.0.0.1:$HTTP/api/streams" >"$WORK/streams.json" 2>&1 \
-    && grep -q "$KEY" "$WORK/streams.json" && pass "/api/streams 列出了推流" \
-    || echo "  [INFO] /api/streams 未列出推流（可能需鉴权）: $(head -c 200 "$WORK/streams.json")"
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$HTTP/api/streams")
+[ "$code" = 401 ] && pass "管理接口无令牌返回 401" || fail "管理接口无令牌返回 $code"
+curl -sf --max-time 5 -H "Authorization: Bearer $ADM" "http://127.0.0.1:$HTTP/api/streams" >"$WORK/streams.json" 2>&1 \
+    && grep -q "$KEY" "$WORK/streams.json" && pass "管理令牌可访问 /api/streams 且列出推流" \
+    || fail "/api/streams 未列出推流: $(head -c 200 "$WORK/streams.json")"
+
+echo "== 鉴权（vhost localhost 开启 enable_auth）"
+mint() {  # mint <stream> <scope>
+    curl -sf --max-time 5 -X POST -H "Authorization: Bearer $ADM" \
+        "http://127.0.0.1:$HTTP/api/token?stream=$1&scope=$2" \
+        | python3 -c 'import sys,json; print(json.load(sys.stdin)["token"])'
+}
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 -X POST "http://127.0.0.1:$HTTP/api/token?stream=x")
+[ "$code" = 401 ] && pass "无管理令牌不能签发 token" || fail "无管理令牌签发 token 返回 $code"
+PUBTOK=$(mint secure publish); PLAYTOK=$(mint secure play); OTHERTOK=$(mint other publish)
+[ -n "$PUBTOK" ] && [ -n "$PLAYTOK" ] && pass "管理员签发流 token" || fail "签发 token 失败"
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 -H "Authorization: Bearer $PLAYTOK" "http://127.0.0.1:$HTTP/api/streams")
+[ "$code" = 403 ] && pass "流 token 不能访问管理接口" || fail "流 token 访问管理接口返回 $code"
+
+try_push() {  # try_push <url> -> 0 表示推流成功持续 4s
+    timeout 8 ffmpeg -hide_banner -loglevel error -re -f lavfi -i "testsrc2=size=160x120:rate=10" \
+        -c:v libx264 -preset ultrafast -t 4 -f flv "$1" >/dev/null 2>&1
+}
+try_push "rtmp://localhost:$RTMP/live/secure" && fail "无 token 推流未被拒绝" || pass "无 token 推流被拒绝"
+try_push "rtmp://localhost:$RTMP/live/secure?token=$OTHERTOK" && fail "其他流的 token 推流未被拒绝" || pass "其他流的 token 推流被拒绝"
+try_push "rtmp://localhost:$RTMP/live/secure?token=$PLAYTOK" && fail "play token 推流未被拒绝" || pass "play token 推流被拒绝"
+
+ffmpeg -hide_banner -loglevel warning -re \
+    -f lavfi -i "testsrc2=size=320x240:rate=25" -f lavfi -i "sine=frequency=500:sample_rate=44100" \
+    -c:v libx264 -preset ultrafast -g 50 -pix_fmt yuv420p -c:a aac -t 25 \
+    -f flv "rtmp://localhost:$RTMP/live/secure?token=$PUBTOK" >"$WORK/push_secure.log" 2>&1 &
+SECURE_PID=$!
+sleep 7
+kill -0 "$SECURE_PID" 2>/dev/null && pass "正确 token 推流成功" || fail "正确 token 推流失败: $(tail -2 "$WORK/push_secure.log")"
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "http://localhost:$HTTP/live/secure.flv")
+[ "$code" = 403 ] && pass "HTTP-FLV 无 token 返回 403" || fail "HTTP-FLV 无 token 返回 $code"
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "http://localhost:$HTTP/live/secure.m3u8")
+[ "$code" = 403 ] && pass "HLS 无 token 返回 403" || fail "HLS 无 token 返回 $code"
+check_pull secure_flv "http://localhost:$HTTP/live/secure.flv?token=$PLAYTOK" 3 60
+curl -sf --max-time 5 "http://localhost:$HTTP/live/secure.m3u8?token=$PLAYTOK" >"$WORK/secure.m3u8"
+grep -v '^#' "$WORK/secure.m3u8" | grep -q "token=" && pass "m3u8 分片 URI 携带 token" || fail "m3u8 分片 URI 未携带 token"
+check_pull secure_hls "http://localhost:$HTTP/live/secure.m3u8?token=$PLAYTOK" 3 60
+check_pull secure_rtmp "rtmp://localhost:$RTMP/live/secure?token=$PLAYTOK" 3 60
+wait "$SECURE_PID" 2>/dev/null
 
 echo "== 健壮性：畸形输入不应使进程崩溃"
 printf 'GET / HTTP/1.1\r\nContent-Length: abc\r\n\r\n' | timeout 3 nc -q1 127.0.0.1 $HTTP >/dev/null 2>&1

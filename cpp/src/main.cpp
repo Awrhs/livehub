@@ -69,6 +69,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <random>
 #include <string>
 
 using namespace streaming;
@@ -116,6 +117,30 @@ int main(int argc, char* argv[]) {
     Logger::instance().setJsonMode(cfg.logJson());
 
     LOG_INFO("=== streaming_server starting ===");
+
+    // JWT 密钥：不再内置默认值（公开源码中的默认值等于任何人可伪造 token）
+    {
+        static const char* kWeak[] = {"change-me-please", "change-me",
+                                      "streaming-server-secret-key-2024",
+                                      "secret"};
+        std::string sec = Config::instance().jwtSecret();
+        if (sec.empty()) {
+            std::random_device rd;
+            char buf[65];
+            for (int i = 0; i < 32; ++i)
+                std::snprintf(buf + i * 2, 3, "%02x", rd() & 0xFF);
+            Config::instance().setJwtSecret(buf);
+            LOG_WARN("JWT_SECRET 未配置：已生成随机密钥（重启后已签发 token 全部失效），"
+                     "生产环境请显式配置");
+        } else {
+            bool weak = sec.size() < 16;
+            for (const char* w : kWeak) weak = weak || sec == w;
+            if (weak)
+                LOG_WARN("JWT_SECRET 过弱或为公开默认值，任何人都可能伪造 token，请立即更换");
+        }
+        if (Config::instance().adminToken().empty())
+            LOG_WARN("ADMIN_TOKEN 未配置：管理接口（/api/*）已关闭，仅健康检查与播放可用");
+    }
     LOG_INFO("http=%u rtmp=%u ioThreads=%d hlsDir=%s edge=%d",
              cfg.httpPort(), cfg.rtmpPort(), cfg.ioThreads(),
              cfg.hlsOutputDir().c_str(), cfg.isEdge());
@@ -299,10 +324,16 @@ int main(int argc, char* argv[]) {
 
     // RTMP 推/拉鉴权：按 vhost 配置执行 webhook 同步鉴权与（可选）JWT 校验，
     // 并做 vhost 启用状态与配额检查。
-    rtmpServer->setAuthHandler(
+    // 推/拉流统一鉴权（RTMP 与 HTTP-FLV/HLS/WS-FLV 共用）
+    //  - rawKey 可带查询串（stream?token=xxx）
+    //  - countQuota：是否计入 vhost 推流/观看配额（HTTP 拉流无断开通知，不计）
+    //  - callHook：是否调用同步 webhook（HLS 轮询高频，不调用）
+    auto authorizeStream =
         [&](const std::string& host, const std::string& app,
-            const std::string& key, bool publish,
-            std::string* reason) -> bool {
+            const std::string& rawKey, bool publish, std::string* reason,
+            bool countQuota, bool callHook) -> bool {
+            std::string key, query;
+            RtmpConnection::splitStreamKey(rawKey, &key, &query);
             auto vh = vhostManager->resolve(host);
             if (!vh || !vh->enabled) {
                 if (reason) *reason = "vhost disabled";
@@ -333,18 +364,15 @@ int main(int argc, char* argv[]) {
             }
             // JWT 鉴权（vhost 开启时；密钥为空则回退全局 secret）
             if (vh->enableAuth) {
-                // 约定：key 形如 "stream?token=xxx" 或 "stream?token=xxx"，
-                // 兼容 OBS/ffmpeg 在 stream key 中附带 token。
                 std::string token;
-                auto qpos = key.find('?');
-                if (qpos != std::string::npos) {
-                    auto qs = key.substr(qpos + 1);
-                    auto tpos = qs.find("token=");
-                    if (tpos != std::string::npos) {
-                        size_t s = tpos + 6;
-                        auto end = qs.find('&', s);
-                        token = qs.substr(s, end == std::string::npos
-                                                 ? std::string::npos : end - s);
+                {
+                    size_t p = 0;
+                    while (p <= query.size()) {
+                        size_t amp = query.find('&', p);
+                        std::string kv = query.substr(p, amp == std::string::npos ? std::string::npos : amp - p);
+                        if (kv.compare(0, 6, "token=") == 0) token = kv.substr(6);
+                        if (amp == std::string::npos) break;
+                        p = amp + 1;
                     }
                 }
                 if (token.empty()) {
@@ -359,24 +387,56 @@ int main(int argc, char* argv[]) {
                     if (reason) *reason = "invalid token";
                     return false;
                 }
+                auto claim = [&](const char* k) {
+                    auto it = claims.find(k);
+                    return it == claims.end() ? std::string() : it->second;
+                };
+                if (claim("role") != "admin") {
+                    // 流 token：须绑定本流（stream 为空或 * 表示任意流）且 scope 匹配
+                    std::string st = claim("stream");
+                    if (!st.empty() && st != "*" && st != key) {
+                        if (reason) *reason = "token not valid for this stream";
+                        return false;
+                    }
+                    std::string scope = claim("scope");
+                    if (scope.empty()) scope = "play";
+                    if (scope != "all" && scope != (publish ? "publish" : "play")) {
+                        if (reason) *reason = "token scope mismatch";
+                        return false;
+                    }
+                }
+                std::string jti = claim("jti");
+                if (!jti.empty() && tokenBlacklist->contains(jti)) {
+                    if (reason) *reason = "token revoked";
+                    return false;
+                }
             }
             // Webhook 同步鉴权（配置了对应 URL 时）；超时 fail-open
             const std::string event = publish ? "on_publish" : "on_play";
             WebhookManager::EventMap fields;
             fields["action"] = event;
             fields["app"] = app;
-            fields["stream"] = key;
+            fields["stream"] = key;   // 不含查询串，避免 token 泄露给 webhook
             fields["vhost"] = vh->name;
-            auto auth = webhooks->authorize(event, fields, vh->webhooks);
-            if (!auth.allowed) {
-                if (reason) *reason = auth.message.empty() ? "denied by hook"
-                                                           : auth.message;
-                return false;
+            if (callHook) {
+                auto auth = webhooks->authorize(event, fields, vh->webhooks);
+                if (!auth.allowed) {
+                    if (reason) *reason = auth.message.empty() ? "denied by hook"
+                                                               : auth.message;
+                    return false;
+                }
             }
             // 配额计数（通过后）
-            if (publish) vh->publishers.fetch_add(1);
-            else vh->viewers.fetch_add(1);
+            if (countQuota) {
+                if (publish) vh->publishers.fetch_add(1);
+                else vh->viewers.fetch_add(1);
+            }
             return true;
+        };
+    rtmpServer->setAuthHandler(
+        [&](const std::string& host, const std::string& app,
+            const std::string& key, bool publish, std::string* reason) {
+            return authorizeStream(host, app, key, publish, reason, true, true);
         });
 
     // ---- HTTP ----
@@ -410,10 +470,10 @@ int main(int argc, char* argv[]) {
 
     RateLimitMiddleware rlMw(rateLimiter);
     AuthFilter authMw(jwt);
+    authMw.setAdminToken(cfg.adminToken());
     // JWT 注销黑名单（本地 + Redis 双层）挂进鉴权链：logout 过的 token 拒绝
     authMw.setBlacklist(tokenBlacklist);
     authMw.allow("/api/health");
-    authMw.allow("/api/token");
     authMw.allow("/api/profiles");
     authMw.allow("/live/");
     authMw.allow("/metrics");
@@ -450,6 +510,14 @@ int main(int argc, char* argv[]) {
         [&](const std::string& key) -> std::shared_ptr<MediaStream> {
             return resolvePlayStream(key);
         });
+    // HTTP 播放鉴权（此前 /live/ 完全不鉴权，vhost enable_auth 对 HLS/FLV 无效）
+    auto httpPlayAuth = [&](const HttpRequest& req, const std::string& key,
+                            bool hlsPoll, std::string* reason) {
+        std::string raw = req.query().empty() ? key : key + "?" + req.query();
+        return authorizeStream(req.header("Host"), "live", raw, false, reason,
+                               /*countQuota=*/false, /*callHook=*/!hlsPoll);
+    };
+    hlsHandler.setPlayAuth(httpPlayAuth);
     hlsHandler.registerRoutes(httpServer);
 
     // WebSocket-FLV 低延迟直播（HTTP Upgrade）
@@ -461,6 +529,10 @@ int main(int argc, char* argv[]) {
                 return s;
             }
             return nullptr;
+        });
+    wsFlvHandler.setPlayAuth(
+        [&](const HttpRequest& req, const std::string& key, std::string* reason) {
+            return httpPlayAuth(req, key, false, reason);
         });
     wsFlvHandler.attach(httpServer);
 
@@ -649,17 +721,44 @@ int main(int argc, char* argv[]) {
     // ---- 基础 API ----
     // （/api/health 在 SRT 之后注册：需要统计 RTMP + SRT 两类活跃连接）
 
+    // 签发 token（仅管理员；由 AuthFilter 保证）：
+    //   POST /api/token?stream=<名>&scope=publish|play|all&ttl=<秒>&role=stream|admin
+    // 此前该接口无需鉴权，任何人都能领取有效 token。
     httpServer.router().post(
         "/api/token",
         [&](const HttpRequest& req, HttpResponse& resp) {
+            std::string role = req.param("role").empty() ? "stream" : req.param("role");
+            std::string scope = req.param("scope").empty() ? "play" : req.param("scope");
+            if ((role != "stream" && role != "admin") ||
+                (scope != "play" && scope != "publish" && scope != "all")) {
+                resp.setStatusCode(HttpStatusCode::k400BadRequest);
+                resp.setContentType("application/json");
+                resp.setBody("{\"error\":\"invalid role or scope\"}");
+                return;
+            }
+            int64_t ttl = 3600;
+            if (!req.param("ttl").empty()) {
+                try { ttl = std::stoll(req.param("ttl")); } catch (...) { ttl = -1; }
+            }
+            if (ttl <= 0 || ttl > 7 * 24 * 3600) {
+                resp.setStatusCode(HttpStatusCode::k400BadRequest);
+                resp.setContentType("application/json");
+                resp.setBody("{\"error\":\"ttl must be 1..604800\"}");
+                return;
+            }
             std::map<std::string, std::string> payload;
-            payload["sub"] = req.attribute("user", "anonymous");
+            payload["sub"] = req.param("sub").empty() ? "client" : req.param("sub");
+            payload["role"] = role;
+            if (role == "stream") {
+                payload["scope"] = scope;
+                payload["stream"] = req.param("stream").empty() ? "*" : req.param("stream");
+            }
             payload["jti"] = std::to_string(
                 Timestamp::now().microSecondsSinceEpoch());
-            std::string token = jwt->sign(payload, 3600);
+            std::string token = jwt->sign(payload, ttl);
             JsonValue obj = JsonValue::object();
             obj.set("token", JsonValue::str(token));
-            obj.set("expires_in", JsonValue::number(3600));
+            obj.set("expires_in", JsonValue::number(static_cast<double>(ttl)));
             resp.setStatusCode(HttpStatusCode::k200Ok);
             resp.setContentType("application/json");
             resp.setBody(obj.dump());
