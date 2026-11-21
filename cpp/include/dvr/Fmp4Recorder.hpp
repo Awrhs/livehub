@@ -101,8 +101,10 @@ private:
     uint32_t segmentSeq_ = 1;    // 段序号（文件名 seg-N.m4s）
     uint32_t fragSeq_ = 1;       // moof 全局序号（mfhd.sequence_number，单调递增）
     uint64_t videoBaseDts_ = 0;   // 当前分片起始 dts（90k）
+    uint64_t audioBaseDts_ = 0;
     bool haveBase_ = false;   // 音视频共同时间基准（毫秒，首个视频关键帧）
     uint32_t baseTs_ = 0;
+    uint32_t lastVideoDts_ = 0;
     uint32_t lastAudioDts_ = 0;
 
     std::vector<Mp4BoxWriter::SampleInfo> videoSamples_;
