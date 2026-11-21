@@ -3,6 +3,7 @@
 #include "core/NonCopyable.hpp"
 #include "hls/TsDemuxer.hpp"
 #include "net/EventLoop.hpp"
+#include "net/Timer.hpp"
 #include "rtmp/AacParser.hpp"
 #include "rtmp/MediaStream.hpp"
 #include "srt/SrtProtocol.hpp"
@@ -78,6 +79,7 @@ private:
     void parseSrtExtension(const uint8_t* p, size_t len);
 
     // ---- 数据接收（ingest）----
+    void startIngest();
     void handleData(const uint8_t* data, size_t len);
     void deliverOrdered();
     void sendAck(uint32_t ackSeq);
@@ -127,7 +129,7 @@ private:
     std::shared_ptr<MediaStream> playStream_;
     MediaStream::SubscriberId playSubId_ = 0;
     AacParser::Config playAacCfg_;
-    uint64_t keepaliveTimer_ = 0;
+    TimerId keepaliveTimer_;
 };
 
 }  // namespace streaming

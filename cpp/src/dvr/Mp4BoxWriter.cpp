@@ -352,6 +352,7 @@ std::vector<uint8_t> Mp4BoxWriter::buildFragment(
     buf_.clear();
 
     // ---- moof ----
+    size_t dataOffsetPos = 0;
     size_t moof = startBox("moof");
     {
         size_t mfhd = startFullBox("mfhd", 0, 0);
@@ -372,15 +373,16 @@ std::vector<uint8_t> Mp4BoxWriter::buildFragment(
         // trun: data offset + 每个 sample 的 duration/size/flags/(cts)
         uint32_t flags = 0x000001;   // data-offset present
         if (!samples.empty()) {
-            flags |= 0x000200;       // sample-duration present
-            flags |= 0x000400;       // sample-size present
-            flags |= 0x000800;       // sample-flags present
-            if (video) flags |= 0x001000;  // sample-cts-offsets present
+            // ISO/IEC 14496-12 8.8.8 trun tr_flags
+            flags |= 0x000100;       // sample-duration present
+            flags |= 0x000200;       // sample-size present
+            flags |= 0x000400;       // sample-flags present
+            if (video) flags |= 0x000800;  // sample-composition-time-offsets present
         }
         size_t trun = startFullBox("trun", 1, flags);
         u32(static_cast<uint32_t>(samples.size()));
         // data offset 先占位，moof 写完后回填
-        size_t dataOffsetPos = buf_.size();
+        dataOffsetPos = buf_.size();
         u32(0);
         for (auto& s : samples) {
             u32(s.duration);

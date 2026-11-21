@@ -99,9 +99,15 @@ bool SwrContextWrapper::init(int64_t outChLayout, AVSampleFormat outFmt,
                               int outRate, int64_t inChLayout,
                               AVSampleFormat inFmt, int inRate) {
     free();
-    ctx_ = swr_alloc_set_opts(nullptr, outChLayout, outFmt, outRate,
-                              inChLayout, inFmt, inRate, 0, nullptr);
-    if (!ctx_) return false;
+    // FFmpeg 5.1+ 新 API（旧的 swr_alloc_set_opts 已在 FFmpeg 7 移除）
+    AVChannelLayout outLayout, inLayout;
+    av_channel_layout_from_mask(&outLayout, static_cast<uint64_t>(outChLayout));
+    av_channel_layout_from_mask(&inLayout, static_cast<uint64_t>(inChLayout));
+    int ret = swr_alloc_set_opts2(&ctx_, &outLayout, outFmt, outRate,
+                                  &inLayout, inFmt, inRate, 0, nullptr);
+    av_channel_layout_uninit(&outLayout);
+    av_channel_layout_uninit(&inLayout);
+    if (ret < 0 || !ctx_) return false;
     return swr_init(ctx_) == 0;
 }
 

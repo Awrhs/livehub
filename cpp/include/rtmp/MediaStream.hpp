@@ -114,7 +114,7 @@ private:
     std::deque<MediaPacket> gop_;
     size_t gopMaxPackets_ = 2048;
 
-    std::mutex subMu_;
+    mutable std::mutex subMu_;
     std::vector<std::pair<SubscriberId, PacketCallback>> subscribers_;
     SubscriberId nextSubId_ = 1;
 

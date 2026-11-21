@@ -1,8 +1,10 @@
 #include "srt/SrtSession.hpp"
 
 #include "core/Logger.hpp"
+#include "hls/TsMuxer.hpp"
 #include "hls/TsPacket.hpp"
 #include "rtmp/AacParser.hpp"
+#include "rtmp/AvcParser.hpp"
 #include "rtmp/EnhancedRtmp.hpp"
 #include "rtmp/HevcParser.hpp"
 
@@ -80,7 +82,7 @@ void SrtSession::onPacket(const uint8_t* data, size_t len) {
                 }
                 if (keepaliveTimer_ && loop_) {
                     loop_->cancel(keepaliveTimer_);
-                    keepaliveTimer_ = 0;
+                    keepaliveTimer_ = TimerId();
                 }
                 break;
             default:
@@ -336,10 +338,12 @@ void SrtSession::attachPlayStream(
     playStream_ = stream;
     if (!stream) return;
     playAttached_ = true;
+    // 每个会话独立的聚合缓冲（不能用 static thread_local：同线程多会话会串流）
+    auto aggBuf = std::make_shared<std::vector<uint8_t>>();
     auto muxer = std::make_shared<TsMuxer>(
-        [this](const uint8_t* p, size_t n) {
+        [this, aggBuf](const uint8_t* p, size_t n) {
             // 输出 TS 包：按 7*188 字节聚合为 SRT 负载（<=MTU）
-            static thread_local std::vector<uint8_t> agg;
+            auto& agg = *aggBuf;
             agg.insert(agg.end(), p, p + n);
             if (agg.size() + 188 > kDefaultMtu - kSrtHeaderLen ||
                 agg.size() >= 7 * 188) {

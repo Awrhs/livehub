@@ -45,9 +45,9 @@ if(OpenSSL_FOUND)
 endif()
 
 # libav 链接（转码用，阶段五）
-if(AVFORMAT_FOUND)
+if(AVFORMAT_FOUND AND AVCODEC_FOUND AND AVUTIL_FOUND AND SWRESAMPLE_FOUND AND SWSCALE_FOUND)
     target_include_directories(streaming_core PUBLIC ${AVFORMAT_INCLUDE_DIRS})
-    target_link_libraries(streaming_core PUBLIC ${AVFORMAT_LIBRARIES} ${AVCODEC_LIBRARIES} ${AVUTIL_LIBRARIES})
+    target_link_libraries(streaming_core PUBLIC ${AVFORMAT_LIBRARIES} ${AVCODEC_LIBRARIES} ${AVUTIL_LIBRARIES} ${SWRESAMPLE_LIBRARIES} ${SWSCALE_LIBRARIES})
 endif()
 
 # 主可执行文件：流媒体服务器

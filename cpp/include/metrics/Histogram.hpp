@@ -24,7 +24,7 @@ public:
         : name_(std::move(name)),
           help_(std::move(help)),
           buckets_(std::move(buckets)),
-          counts_(buckets_.size() + 1, 0) {}
+          counts_(buckets_.size() + 1) {}  // 值初始化为 0
 
     void observe(double value) {
         for (size_t i = 0; i < buckets_.size(); ++i) {

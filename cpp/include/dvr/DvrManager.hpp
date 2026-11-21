@@ -2,6 +2,7 @@
 
 #include "core/NonCopyable.hpp"
 #include "dvr/Fmp4Recorder.hpp"
+#include "net/Timer.hpp"
 #include "rtmp/MediaStream.hpp"
 
 #include <cstdint>
@@ -46,11 +47,12 @@ public:
 
     using ScheduleId = uint64_t;
 
-    explicit DvrManager(Config cfg = {});
+    DvrManager();
+    explicit DvrManager(Config cfg);
     ~DvrManager();
 
     /// 绑定 EventLoop（计划录制定时任务必须）
-    void setLoop(EventLoop* loop) { loop_ = loop; }
+    void setLoop(EventLoop* loop);
 
     /// 注入异步文件写线程
     void setAsyncWriter(AsyncFileWriter* w) { asyncWriter_ = w; }
@@ -98,7 +100,7 @@ private:
     Config cfg_;
     EventLoop* loop_ = nullptr;
     AsyncFileWriter* asyncWriter_ = nullptr;
-    uint64_t schedulerTimer_ = 0;
+    TimerId schedulerTimer_;
     mutable std::mutex mu_;
     std::map<std::string, std::shared_ptr<Fmp4Recorder>> timeshifts_;
     std::map<std::string, std::shared_ptr<Fmp4Recorder>> records_;

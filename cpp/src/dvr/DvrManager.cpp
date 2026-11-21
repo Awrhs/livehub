@@ -42,6 +42,8 @@ struct DvrManager::Schedule {
     std::function<std::shared_ptr<MediaStream>(const std::string&)> resolver;
 };
 
+DvrManager::DvrManager() : DvrManager(Config{}) {}
+
 DvrManager::DvrManager(Config cfg) : cfg_(std::move(cfg)) {
     mkdirp(cfg_.baseDir);
     mkdirp(cfg_.baseDir + "/timeshift");
@@ -49,14 +51,14 @@ DvrManager::DvrManager(Config cfg) : cfg_(std::move(cfg)) {
 }
 
 DvrManager::~DvrManager() {
-    if (loop_ && schedulerTimer_ != 0) {
+    if (loop_ && schedulerTimer_) {
         loop_->cancel(schedulerTimer_);
     }
 }
 
 void DvrManager::setLoop(EventLoop* loop) {
     loop_ = loop;
-    if (loop_ && schedulerTimer_ == 0) {
+    if (loop_ && !schedulerTimer_) {
         // 每 30 秒检查一次计划录制
         schedulerTimer_ =
             loop_->runEvery(30.0, [this] { tickSchedules(); });
