@@ -1,4 +1,6 @@
 #include "core/Logger.hpp"
+
+#include <chrono>
 #include "core/Timestamp.hpp"
 
 #include <cstdarg>
@@ -50,6 +52,18 @@ void Logger::writeLine(const char* data, size_t len) {
     if (fp_) {
         std::fwrite(data, 1, len, fp_);
         std::fputc('\n', fp_);
+    }
+}
+
+void Logger::maybeFlush(LogLevel level) {
+    // stdout 重定向到文件时为全缓冲：WARN 以上立即刷盘；其余至多 200ms 刷一次。
+    // （原实现从不主动刷新，日志成块延迟出现，崩溃时最后的关键日志丢失）
+    int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::steady_clock::now().time_since_epoch())
+                      .count();
+    if (level >= LogLevel::WARN || now - lastFlushMs_ >= 200) {
+        flush();
+        lastFlushMs_ = now;
     }
 }
 
@@ -146,6 +160,7 @@ void Logger::log(LogLevel level, const char* file, int line,
         jsonLine += "\"}";
         std::lock_guard<std::mutex> lock(logMutex());
         writeLine(jsonLine.data(), jsonLine.size());
+        maybeFlush(level);
         if (level == LogLevel::FATAL) {
             flush();
             std::abort();
@@ -181,6 +196,7 @@ void Logger::log(LogLevel level, const char* file, int line,
     {
         std::lock_guard<std::mutex> lock(logMutex());
         writeLine(lineBuf, total);
+        maybeFlush(level);
         // FATAL 立即刷新并 abort
         if (level == LogLevel::FATAL) {
             flush();

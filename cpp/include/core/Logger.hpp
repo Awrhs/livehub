@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <atomic>
 #include <cstdio>
 #include <cstring>
@@ -91,6 +92,8 @@ private:
 
     // 线程安全写入
     void writeLine(const char* data, size_t len);
+    void maybeFlush(LogLevel level);  // 调用方持有日志锁
+    int64_t lastFlushMs_ = 0;
 };
 
 // 当前文件名（编译期）
