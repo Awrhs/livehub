@@ -194,10 +194,9 @@ jobs:
           retention-days: 7
 
   e2e-ext:
-    name: "E2E 扩展模块（实验性：HEVC/RTSP/SRT/DVR）"
+    name: "E2E 扩展模块（HEVC/RTSP/SRT/DVR）"
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 

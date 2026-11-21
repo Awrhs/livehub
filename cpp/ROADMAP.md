@@ -28,7 +28,7 @@
 | H.265 / Enhanced RTMP（RTMP/HTTP-FLV/HLS 拉流） | ✅ | 扩展 E2E |
 | RTSP 拉流（TCP） | ✅ | 扩展 E2E |
 | DVR 录制为 fMP4（可播放、从关键帧开始、音视频同基准） | ✅ | 扩展 E2E |
-| SRT | ❌ 握手失败（手写协议栈），计划改用 libsrt | 扩展 E2E |
+| SRT（libsrt）：推流 → FLV/HLS、RTMP 推流 → SRT 拉流、鉴权、拒绝抢占 | ✅ | 扩展 E2E |
 | 限流 / webhook / WebRTC / 转码 / 集群 | ⚠️ 编译通过，未经验证 | — |
 
 ### 第一轮已修复的致命问题（节选）
@@ -73,6 +73,18 @@
 - [x] GCC 编译告警清零并开启 `-Werror`（clang 仍有 ~20 条未使用字段告警待清理）
 - [ ] 文档：配置项说明与实际代码对齐；部署指南
 
+### 第二轮修复的致命问题（节选）
+
+- **所有连接 fd 都是阻塞的**（`::accept` 不继承 O_NONBLOCK）：一个不读数据的客户端可卡死整个
+  IO 线程上的全部连接；EMFILE 时 epoll 忙循环
+- **带活跃连接退出必崩**：IO 线程仍在运行时析构局部对象；IO 线程的 EventLoop 随线程退出析构，
+  与 quit() 唤醒竞争。现为两阶段有序关闭
+- **鉴权形同虚设**：`/api/token` 任何人可调用；HTTP 播放不鉴权；源码内置 JWT 密钥
+- 空闲超时定时器随连接数无限累积且从未启用；写盘队列无上限
+- Enhanced RTMP 格式与规范不符（H.265 不可用）；TsDemuxer 丢弃几乎所有 TS 包
+- HLS：新源可能被立即回收；分片写盘未完成即发布；断流无 ENDLIST
+- TcpConnection::state_ 跨线程数据竞争（TSan）
+
 ### P1 —— 其它已知问题
 
 - [ ] SIGHUP 热加载：Config 顶层标量在其它线程读取时被直接改写（数据竞争）
@@ -91,7 +103,7 @@
 按"能否端到端验证"逐个推进；无法验证的模块宁可暂时关闭，也不对外宣称支持。
 
 - [x] Enhanced RTMP / H.265：按规范重写解析（原实现格式与规范不符），RTMP/FLV/HLS 拉流 E2E 通过
-- [ ] SRT：评估改用 libsrt 替换手写协议栈
+- [x] SRT：改用 libsrt 重写（手写协议栈无法握手；TsDemuxer 有 6 处致命错误，从未运行过）
 - [ ] WebRTC（WHIP/WHEP）：评估改用 libdatachannel 等成熟库
 - [x] RTSP 拉流 E2E
 - [x] DVR / fMP4 录制产物可播放（修复 trun 标志位、非关键帧起录、音视频基准不一致）

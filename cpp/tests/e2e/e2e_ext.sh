@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 扩展模块端到端测试（实验性，CI 中 continue-on-error）：
+# 扩展模块端到端测试：
 #   H.265/Enhanced RTMP、RTSP 拉流、SRT 推流、DVR 录制
 # 用法：e2e_ext.sh <streaming_server>
 set -u
