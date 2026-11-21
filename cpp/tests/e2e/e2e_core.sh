@@ -188,7 +188,7 @@ fi
 
 echo
 echo "== 服务器日志（末尾 40 行）"
-tail -40 "$LOG"
+tail -60 "$LOG"
 echo
 if [ "$FAILS" -eq 0 ]; then
     echo "E2E 全部通过"

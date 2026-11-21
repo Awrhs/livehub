@@ -95,6 +95,8 @@ std::vector<Profile> parseProfileSpec(const std::string& spec) {
 
 int main(int argc, char* argv[]) {
     ::signal(SIGPIPE, SIG_IGN);
+    // 在创建任何线程之前屏蔽终止/重载信号，由 SignalGuard 的 signalfd 统一处理
+    SignalGuard::blockProcessSignals();
 
     // ---- 配置 ----
     std::string configFile = (argc > 1) ? argv[1] : "";

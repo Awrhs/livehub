@@ -1,5 +1,7 @@
 #include "rtmp/RtmpServer.hpp"
 
+#include <any>
+
 #include "core/Logger.hpp"
 #include "core/Timestamp.hpp"
 #include "net/TcpConnection.hpp"
@@ -11,22 +13,26 @@
 namespace streaming {
 
 namespace {
-using ConnMap =
-    std::unordered_map<const TcpConnection*, std::shared_ptr<RtmpConnection>>;
+std::shared_ptr<RtmpConnection> sessionOf(const TcpConnectionPtr& conn) {
+    const std::any& ctx = conn->getContext();
+    if (auto p = std::any_cast<std::shared_ptr<RtmpConnection>>(&ctx)) return *p;
+    return nullptr;
+}
+}  // namespace
+
+namespace {
 }  // namespace
 
 RtmpServer::RtmpServer(EventLoop* loop, uint16_t port, std::string app)
     : server_(loop, port, "0.0.0.0", TcpServer::kReusePort),
       app_(std::move(app)) {
-    auto conns = std::make_shared<ConnMap>();
-    auto self = this;
 
     server_.setConnectionCallback(
-        [this, conns](const TcpConnectionPtr& conn) {
+        [this](const TcpConnectionPtr& conn) {
             if (conn->connected()) {
                 auto rc = std::make_shared<RtmpConnection>(conn, app_);
                 rc->setPublishCallback(
-                    [this, conns](const std::shared_ptr<RtmpConnection>& s,
+                    [this](const std::shared_ptr<RtmpConnection>& s,
                                   const std::string& app,
                                   const std::string& key,
                                   std::shared_ptr<MediaStream> ms) {
@@ -52,7 +58,7 @@ RtmpServer::RtmpServer(EventLoop* loop, uint16_t port, std::string app)
                         return true;
                     });
                 rc->setCloseCallback(
-                    [this, conns](const std::shared_ptr<RtmpConnection>& c) {
+                    [this](const std::shared_ptr<RtmpConnection>& c) {
                         if (c->isPublisher() && c->stream()) {
                             removeStream(c->streamKey());
                         }
@@ -62,23 +68,19 @@ RtmpServer::RtmpServer(EventLoop* loop, uint16_t port, std::string app)
                             if (c->isPublisher()) vh->publishers.fetch_sub(1);
                             if (c->isPlayer()) vh->viewers.fetch_sub(1);
                         }
-                        if (auto tc = c->tcpConn()) {
-                            conns->erase(tc.get());
-                        }
+                        // 解除 TcpConnection 对会话的持有；断连回调据此不再重复清理
+                        if (auto tc = c->tcpConn()) tc->setContext(std::any());
                     });
-                {
-                    // 连接建立后注册；conns 在连接回调线程（ioLoop）访问，
-                    // 但同一 TcpConnection 的消息/关闭都在同一 loop，安全。
-                    (*conns)[conn.get()] = rc;
-                }
+                // 会话挂在各自 TcpConnection 的 context 上：每个连接只在自己的
+                // IO 线程访问，无需全局共享表（原全局 map 被多个 IO 线程并发读写）。
+                conn->setContext(rc);
                 LOG_INFO("RTMP connection up: %s", conn->name().c_str());
             } else {
                 LOG_INFO("RTMP connection down: %s", conn->name().c_str());
                 // 异常断连：触发与 deleteStream 相同的清理（移除流、回收配额）
-                auto it = conns->find(conn.get());
-                if (it != conns->end()) {
-                    auto c = it->second;
-                    conns->erase(it);
+                auto c = sessionOf(conn);
+                if (c) {
+                    conn->setContext(std::any());
                     if (c->isPublisher() && c->stream()) {
                         removeStream(c->streamKey());
                     }
@@ -92,11 +94,11 @@ RtmpServer::RtmpServer(EventLoop* loop, uint16_t port, std::string app)
         });
 
     server_.setMessageCallback(
-        [conns](const TcpConnectionPtr& conn, Buffer* buf, Timestamp) {
-            auto it = conns->find(conn.get());
-            if (it != conns->end()) {
-                it->second->onRead(buf);
-            }
+        [](const TcpConnectionPtr& conn, Buffer* buf, Timestamp) {
+            // 持有一份引用：onRead 内部可能 close() 并释放 context 中的引用，
+            // 若不保活，RtmpConnection 会在自身成员函数执行中途被析构（UAF）。
+            auto rc = sessionOf(conn);
+            if (rc) rc->onRead(buf);
         });
 }
 

@@ -29,6 +29,11 @@ public:
     /// 追加监听信号（SIGINT/SIGTERM 默认已监听）
     void addSignal(int signo);
 
+    /// 必须在 main 最开始、创建任何线程之前调用：在主线程屏蔽 SIGINT/SIGTERM/SIGHUP，
+    /// 之后创建的线程继承该屏蔽字，信号只能经 signalfd 读取。
+    /// 否则信号可能投递给未屏蔽的工作线程，触发默认动作直接杀死进程。
+    static void blockProcessSignals();
+
     void setSignalCallback(SignalCallback cb) { cb_ = std::move(cb); }
 
 private:

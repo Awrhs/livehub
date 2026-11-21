@@ -64,9 +64,13 @@ void RtmpConnection::onRead(Buffer* buf) {
 
     // 握手完成后持续解析 chunk
     RtmpMessage msg;
-    while (chunkParser_.parseMessage(*buf, msg)) {
+    while (!closed_ && chunkParser_.parseMessage(*buf, msg)) {
         onCompleteMessage(std::move(msg));
         msg = RtmpMessage{};
+    }
+    if (closed_) {
+        buf->retrieveAll();
+        return;
     }
     if (chunkParser_.hasError()) {
         // 协议错误：后续字节流已无法对齐，直接断开
@@ -465,11 +469,12 @@ void RtmpConnection::sendMessage(const RtmpMessage& msg) {
 }
 
 void RtmpConnection::close() {
+    if (closed_) return;  // 幂等
+    closed_ = true;
+    auto self = shared_from_this();  // 回调可能释放外部引用，先保活
     auto c = conn_.lock();
     if (c) c->forceClose();
-    if (onClose_) {
-        onClose_(shared_from_this());
-    }
+    if (onClose_) onClose_(self);
 }
 
 }  // namespace streaming

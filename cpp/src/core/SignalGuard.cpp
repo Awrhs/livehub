@@ -46,12 +46,23 @@ SignalGuard::~SignalGuard() {
 }
 
 void SignalGuard::addSignal(int signo) {
+    // 注意：对已有 fd 调用 signalfd 会“整体替换”监听集合，
+    // 必须传入累积后的完整 mask，否则原有 SIGINT/SIGTERM 将不再被读取。
+    signals_.push_back(signo);
     sigset_t mask;
     sigemptyset(&mask);
-    sigaddset(&mask, signo);
+    for (int s : signals_) sigaddset(&mask, s);
     pthread_sigmask(SIG_BLOCK, &mask, nullptr);
-    signalfd(sigFd_, &mask, SFD_NONBLOCK | SFD_CLOEXEC);
-    signals_.push_back(signo);
+    if (sigFd_ >= 0) signalfd(sigFd_, &mask, SFD_NONBLOCK | SFD_CLOEXEC);
+}
+
+void SignalGuard::blockProcessSignals() {
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGINT);
+    sigaddset(&mask, SIGTERM);
+    sigaddset(&mask, SIGHUP);
+    pthread_sigmask(SIG_BLOCK, &mask, nullptr);
 }
 
 void SignalGuard::onRead() {

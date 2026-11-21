@@ -94,6 +94,7 @@ private:
     ChunkWriter chunkWriter_;
 
     bool handshakeDone_ = false;
+    bool closed_ = false;
     bool publishing_ = false;
     bool playing_ = false;
     uint32_t clientChunkSize_ = 128;
