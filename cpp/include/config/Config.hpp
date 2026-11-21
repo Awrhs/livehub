@@ -94,7 +94,7 @@ private:
     uint16_t httpPort_ = 8080;
     uint16_t rtmpPort_ = 1935;
     int ioThreads_ = 4;
-    int idleTimeoutSec_ = 0;
+    int idleTimeoutSec_ = 30;  // 0 = 不超时
 
     int hlsSegmentDuration_ = 6;
     int hlsWindowSize_ = 5;

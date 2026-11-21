@@ -23,7 +23,8 @@ TcpConnection::TcpConnection(EventLoop* loop, const std::string& name,
       localAddr_(localAddr),
       peerAddr_(peerAddr),
       highWaterMark_(64 * 1024 * 1024),
-      lastReceiveTime_(Timestamp::now()) {
+      lastReceiveTime_(Timestamp::now()),
+      lastActivity_(Timestamp::now()) {
     channel_.setReadCallback(
         [this](Timestamp t) { this->handleRead(t); });
     channel_.setWriteCallback([this] { this->handleWrite(); });
@@ -43,6 +44,22 @@ void TcpConnection::connectEstablished() {
     loop_->runInLoop([this, self] {
         setState(kConnected);
         channel_.tie(self);
+        lastActivity_ = Timestamp::now();
+        if (idleTimeoutSec_ > 0) {
+            // 定时器归连接自身所有，connectDestroyed 时取消
+            //（原实现由 TcpServer 为每个连接注册永不取消的 runEvery，定时器随连接数无限累积）
+            std::weak_ptr<TcpConnection> weak = self;
+            idleTimer_ = loop_->runEvery(1.0, [weak] {
+                auto c = weak.lock();
+                if (!c || c->state_ != kConnected) return;
+                double idle = Timestamp::now() - c->lastActivity_;
+                if (idle > c->idleTimeoutSec_) {
+                    LOG_WARN("connection [%s] idle %.1fs, force close",
+                             c->name_.c_str(), idle);
+                    c->forceClose();
+                }
+            });
+        }
         channel_.enableReading();
         if (connectionCallback_) {
             connectionCallback_(shared_from_this());
@@ -53,6 +70,10 @@ void TcpConnection::connectEstablished() {
 void TcpConnection::connectDestroyed() {
     auto self = shared_from_this();
     loop_->runInLoop([this, self] {
+        if (idleTimer_) {
+            loop_->cancel(idleTimer_);
+            idleTimer_ = TimerId();
+        }
         if (state_ == kConnected) {
             setState(kDisconnected);
             channel_.disableAll();
@@ -111,6 +132,7 @@ void TcpConnection::sendInLoop(const void* data, size_t len) {
     // 若 output buffer 为空，直接 write，避免注册 EPOLLOUT
     if (!channel_.isWriting() && outputBuffer_.readableBytes() == 0) {
         nwrote = ::write(socket_.fd(), data, len);
+        if (nwrote > 0) lastActivity_ = Timestamp::now();
         if (nwrote >= 0) {
             remaining = len - static_cast<size_t>(nwrote);
             if (remaining == 0 && writeCompleteCallback_) {
@@ -196,6 +218,7 @@ void TcpConnection::handleRead(Timestamp receiveTime) {
     ssize_t n = inputBuffer_.readFd(socket_.fd(), &savedErrno);
     if (n > 0) {
         lastReceiveTime_ = receiveTime;
+        lastActivity_ = receiveTime;
         if (messageCallback_) {
             messageCallback_(shared_from_this(), &inputBuffer_, receiveTime);
         }
@@ -224,6 +247,7 @@ void TcpConnection::handleWrite() {
     ssize_t n = ::write(socket_.fd(), outputBuffer_.peek(),
                         outputBuffer_.readableBytes());
     if (n > 0) {
+        lastActivity_ = Timestamp::now();
         outputBuffer_.retrieve(static_cast<size_t>(n));
         outputBytes_.store(outputBuffer_.readableBytes(), std::memory_order_relaxed);
         if (outputBuffer_.readableBytes() == 0) {

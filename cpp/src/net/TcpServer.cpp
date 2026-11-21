@@ -78,20 +78,8 @@ void TcpServer::newConnection(int sockfd,
             this->removeConnection(c);
         });
 
-    // 空闲超时：在 ioLoop 中定时检查
-    if (idleTimeout_ > 0) {
-        std::weak_ptr<TcpConnection> weakConn = conn;
-        ioLoop->runEvery(1.0, [weakConn, this] {
-            std::shared_ptr<TcpConnection> c = weakConn.lock();
-            if (!c || !c->connected()) return;
-            double idle = Timestamp::now() - c->lastReceiveTime();
-            if (idle > idleTimeout_) {
-                LOG_WARN("connection [%s] idle %.1fs, force close",
-                         c->name().c_str(), idle);
-                c->forceClose();
-            }
-        });
-    }
+    // 空闲超时由连接自身管理（读写均无进展才断开）
+    if (idleTimeout_ > 0) conn->setIdleTimeout(idleTimeout_);
 
     LOG_INFO("new connection [%s] from %s", connName.c_str(),
              TcpConnection::addrToString(peerAddr).c_str());

@@ -73,6 +73,7 @@ public:
     void start() { server_.start(); }
 
     void setThreadNum(int n) { server_.setThreadNum(n); }
+    void setIdleTimeout(int seconds) { server_.setIdleTimeout(seconds); }
 
     /// WebSocket / 协议升级回调：返回 true 表示已接管连接（已写 101 并
     /// 通过 conn->setMessageCallback 安装了新的数据处理器），HTTP 层

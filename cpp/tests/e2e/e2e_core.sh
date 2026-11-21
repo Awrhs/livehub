@@ -35,6 +35,7 @@ HTTP_PORT=$HTTP
 RTMP_PORT=$RTMP
 SRT_PORT=19536
 IO_THREADS=2
+IDLE_TIMEOUT=8
 HLS_SEGMENT_DURATION=2
 HLS_WINDOW_SIZE=5
 HLS_OUTPUT_DIR=$WORK/hls
@@ -213,6 +214,21 @@ head -c 4096 /dev/urandom | timeout 3 nc -q1 127.0.0.1 $RTMP >/dev/null 2>&1
 head -c 4096 /dev/urandom | timeout 3 nc -q1 127.0.0.1 $HTTP >/dev/null 2>&1
 sleep 1
 kill -0 "$SERVER_PID" 2>/dev/null && pass "畸形输入后进程存活" || fail "畸形输入导致进程退出"
+
+echo "== 空闲超时：只连不发的连接应被断开"
+python3 -c '
+import socket, time, sys
+s = socket.create_connection(("127.0.0.1", int(sys.argv[1])))
+s.settimeout(20)
+t = time.time()
+try:
+    d = s.recv(1)
+except Exception:
+    d = None
+print("closed_after=%.1f" % (time.time() - t) if d == b"" else "not_closed")
+' $RTMP >"$WORK/idle.out" 2>&1
+grep -q closed_after "$WORK/idle.out" && pass "空闲 RTMP 连接被断开 ($(cat "$WORK/idle.out"))" \
+    || fail "空闲 RTMP 连接未被断开 ($(cat "$WORK/idle.out"))"
 
 echo "== 慢观众流控"
 wait "$SLOW_PID" 2>/dev/null

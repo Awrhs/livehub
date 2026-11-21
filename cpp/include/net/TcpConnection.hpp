@@ -4,6 +4,7 @@
 #include "core/Buffer.hpp"
 #include "net/Channel.hpp"
 #include "net/Socket.hpp"
+#include "net/Timer.hpp"
 
 #include <any>
 #include <atomic>
@@ -103,6 +104,12 @@ public:
 
     /// 每收到一次数据刷新一次（用于空闲超时统计）
     Timestamp lastReceiveTime() const { return lastReceiveTime_; }
+    /// 最近一次读或写有进展的时间（loop 线程维护）
+    Timestamp lastActivityTime() const { return lastActivity_; }
+
+    /// 启用空闲超时：读写均无进展超过 seconds 秒则断开（推流假死、
+    /// 卡住的观众、握手不完成、空闲长连接）。须在 connectEstablished 前设置。
+    void setIdleTimeout(int seconds) { idleTimeoutSec_ = seconds; }
 
     /// 获取 TCP_INFO（RTT/丢包/重传），失败返回 false
     bool tcpInfo(TcpInfo* info) const;
@@ -161,6 +168,9 @@ private:
 
     size_t highWaterMark_ = 64 * 1024 * 1024;  // 64MB 默认高水位
     Timestamp lastReceiveTime_;
+    Timestamp lastActivity_;
+    int idleTimeoutSec_ = 0;
+    TimerId idleTimer_;
 
     std::any context_;
 };
