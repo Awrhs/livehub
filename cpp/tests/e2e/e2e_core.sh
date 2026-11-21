@@ -93,7 +93,7 @@ check_pull() {
         return
     fi
     grep -q '^h264,video' "$out.probe" && pass "$name: 探测到 H.264 视频" \
-        || fail "$name: 未探测到 H.264 视频 ($(tr '\n' ' ' <"$out.probe"))"
+        || fail "$name: 未探测到 H.264 视频 ($(tr "\n" " " <"$out.probe" | tail -c 300))"
     grep -q '^aac,audio' "$out.probe" && pass "$name: 探测到 AAC 音频" \
         || fail "$name: 未探测到 AAC 音频 ($(tr '\n' ' ' <"$out.probe"))"
 

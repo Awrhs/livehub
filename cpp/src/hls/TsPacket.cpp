@@ -23,8 +23,9 @@ uint32_t TsPacket::crc32(const uint8_t* data, size_t len) {
 void TsPacket::writeHeader(uint8_t* out, uint16_t pid, uint8_t cc, bool pusi,
                            bool hasAdaptation, bool hasPayload) {
     out[0] = kTsSync;
-    out[1] = (pusi ? 0x40 : 0x00) | 0x10 |
-             static_cast<uint8_t>((pid >> 8) & 0x1F);
+    // byte1: TEI(1) PUSI(1) priority(1) PID[12:8](5)
+    // 原实现在此多或了 0x10（即 PID 第 12 位），导致所有 PID +0x1000、PAT 不在 PID 0
+    out[1] = static_cast<uint8_t>((pusi ? 0x40 : 0x00) | ((pid >> 8) & 0x1F));
     out[2] = static_cast<uint8_t>(pid & 0xFF);
     uint8_t afc = 0;
     if (hasAdaptation) afc |= 0x20;
@@ -32,45 +33,16 @@ void TsPacket::writeHeader(uint8_t* out, uint16_t pid, uint8_t cc, bool pusi,
     out[3] = afc | (cc & 0x0F);
 }
 
-// 写入 adaptation field。返回写入长度（含 length 字节）。
-static size_t writeAdaptationField(uint8_t* out, size_t maxLen, int64_t pcr,
-                                   bool randomAccess) {
-    if (pcr < 0 && !randomAccess) {
-        // 仅 stuffing：用 0xFF 填充
-        if (maxLen == 0) return 0;
-        out[0] = static_cast<uint8_t>(maxLen - 1);
-        if (maxLen > 1) out[1] = 0x00;
-        for (size_t i = 2; i < maxLen; ++i) out[i] = 0xFF;
-        return maxLen;
-    }
-
-    bool hasPcr = pcr >= 0;
-    uint8_t flags = 0x10;  // adaptation_field_length 后有 flags 字节
-    if (randomAccess) flags |= 0x40;
-    size_t afSize = 1 /*flags*/ + (hasPcr ? 6 : 0);
-
-    size_t totalLen = 1 + afSize;  // 含 length 字节
-    if (totalLen > maxLen) totalLen = maxLen;
-
-    out[0] = static_cast<uint8_t>(totalLen - 1);
-    if (totalLen > 1) out[1] = flags;
-    size_t pos = 2;
-    if (hasPcr && pos + 6 <= maxLen) {
-        // PCR 以 27MHz 为单位；这里 pcr 以 90kHz 传入，乘 300
-        int64_t pcr27 = pcr * 300;
-        uint64_t base = static_cast<uint64_t>(pcr27 / 300);
-        uint16_t ext = static_cast<uint16_t>(pcr27 % 300);
-        uint64_t v = (base << 15) | (1 << 9) | ext;
-        out[pos + 0] = static_cast<uint8_t>(v >> 25);
-        out[pos + 1] = static_cast<uint8_t>(v >> 17);
-        out[pos + 2] = static_cast<uint8_t>(v >> 9);
-        out[pos + 3] = static_cast<uint8_t>(v >> 1);
-        out[pos + 4] = static_cast<uint8_t>((v << 7) | 0x7E);
-        out[pos + 5] = 0x00;
-        pos += 6;
-    }
-    while (pos < maxLen) out[pos++] = 0xFF;
-    return totalLen;
+// PCR：33 位 base（90kHz）+ 6 位保留(全 1) + 9 位 ext（27MHz 余数）
+static void writePcr(uint8_t* p, int64_t pcr90k) {
+    uint64_t base = static_cast<uint64_t>(pcr90k) & 0x1FFFFFFFFULL;
+    uint16_t ext = 0;
+    p[0] = static_cast<uint8_t>(base >> 25);
+    p[1] = static_cast<uint8_t>(base >> 17);
+    p[2] = static_cast<uint8_t>(base >> 9);
+    p[3] = static_cast<uint8_t>(base >> 1);
+    p[4] = static_cast<uint8_t>(((base & 1) << 7) | 0x7E | ((ext >> 8) & 1));
+    p[5] = static_cast<uint8_t>(ext & 0xFF);
 }
 
 size_t TsPacket::buildPat(uint8_t* out, uint16_t pmtPid, uint8_t cc) {
@@ -156,28 +128,40 @@ size_t TsPacket::buildPmt(uint8_t* out, uint16_t pmtPid, uint16_t pcrPid,
 }
 
 size_t TsPacket::buildPes(uint8_t* out, uint16_t pid, uint8_t cc, bool pusi,
-                           const uint8_t* payload, size_t payloadLen,
-                           int64_t pcr, bool randomAccess, size_t* consumed) {
-    // 首包 PUSI，带 PCR（可选）；后续包纯 payload
-    bool hasAdaptation = (pcr >= 0 || randomAccess);
-    writeHeader(out, pid, cc, pusi, hasAdaptation, true);
+                          const uint8_t* payload, size_t payloadLen,
+                          int64_t pcr, bool randomAccess, size_t* consumed) {
+    // adaptation field 总长度（含 length 字节）
+    bool hasPcr = pcr >= 0;
+    size_t afLen = (hasPcr || randomAccess) ? (2 + (hasPcr ? 6 : 0)) : 0;
+    size_t space = kTsPacketSize - 4 - afLen;
+    size_t n = payloadLen < space ? payloadLen : space;
+    // 负载不足一个包时，必须用 adaptation field 填充（stuffing），
+    // 绝不能在 payload 末尾补 0xFF —— 那会被解码器当作 ES 数据（原实现的 bug）。
+    if (n < space) afLen += space - n;
+
+    writeHeader(out, pid, cc, pusi, afLen > 0, true);
     size_t pos = 4;
-
-    if (hasAdaptation) {
-        size_t afMax = pcr >= 0 ? 8 : (randomAccess ? 2 : 0);
-        if (afMax > 0) {
-            pos += writeAdaptationField(out + pos, afMax, pcr, randomAccess);
+    if (afLen > 0) {
+        out[pos] = static_cast<uint8_t>(afLen - 1);  // adaptation_field_length
+        if (afLen >= 2) {
+            uint8_t flags = 0;
+            if (randomAccess) flags |= 0x40;
+            if (hasPcr) flags |= 0x10;
+            out[pos + 1] = flags;
+            size_t q = pos + 2;
+            if (hasPcr) {
+                writePcr(out + q, pcr);
+                q += 6;
+            }
+            while (q < pos + afLen) out[q++] = 0xFF;  // stuffing
         }
+        pos += afLen;
     }
-
-    size_t avail = kTsPacketSize - pos;
-    size_t n = payloadLen < avail ? payloadLen : avail;
     if (payload && n > 0) {
         std::memcpy(out + pos, payload, n);
         pos += n;
     }
     if (consumed) *consumed = n;
-    while (pos < kTsPacketSize) out[pos++] = 0xFF;
     return kTsPacketSize;
 }
 

@@ -46,7 +46,7 @@ enum class HttpStatusCode {
 class HttpResponse {
 public:
     explicit HttpResponse(bool closeConnection = false)
-        : statusCode_(HttpStatusCode::kUnknown),
+        : statusCode_(HttpStatusCode::k200Ok),
           closeConnection_(closeConnection),
           fileFd_(-1),
           fileSize_(0) {}
@@ -76,6 +76,7 @@ public:
     /// @param contentType MIME 类型
     void setFileBody(int fd, size_t size, const std::string& contentType) {
         fileFd_ = fd;
+        setStatusCode(HttpStatusCode::k200Ok);
         fileSize_ = size;
         setContentType(contentType);
         addHeader("Content-Length", std::to_string(size));
