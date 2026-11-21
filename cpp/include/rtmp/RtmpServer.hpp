@@ -43,6 +43,7 @@ public:
 
     void setThreadNum(int n) { server_.setThreadNum(n); }
     void setIdleTimeout(int seconds) { server_.setIdleTimeout(seconds); }
+    void setConnectionLimits(int total, int perIp) { server_.setConnectionLimits(total, perIp); }
     void stop() { server_.stop(); }
     void setPublishHandler(PublishHandler h) { onPublish_ = std::move(h); }
     void setPlayHandler(PlayHandler h) { onPlay_ = std::move(h); }

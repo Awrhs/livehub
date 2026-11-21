@@ -36,6 +36,8 @@ public:
     uint16_t rtmpPort() const { return rtmpPort_; }
     int ioThreads() const { return ioThreads_; }
     int idleTimeoutSec() const { return idleTimeoutSec_; }
+    int maxConnections() const { return maxConnections_; }
+    int maxConnectionsPerIp() const { return maxConnectionsPerIp_; }
 
     int hlsSegmentDuration() const { return hlsSegmentDuration_; }
     int hlsWindowSize() const { return hlsWindowSize_; }
@@ -99,6 +101,8 @@ private:
     uint16_t rtmpPort_ = 1935;
     int ioThreads_ = 4;
     int idleTimeoutSec_ = 30;  // 0 = 不超时
+    int maxConnections_ = 10000;     // 每个服务（RTMP/HTTP/RTSP）的连接上限，0=不限
+    int maxConnectionsPerIp_ = 0;    // 单 IP 连接上限，0=不限
 
     int hlsSegmentDuration_ = 6;
     int hlsWindowSize_ = 5;

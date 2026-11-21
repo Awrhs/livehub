@@ -250,6 +250,7 @@ int main(int argc, char* argv[]) {
         std::make_shared<RtmpServer>(&baseLoop, cfg.rtmpPort(), "live");
     rtmpServer->setThreadNum(cfg.ioThreads());
     rtmpServer->setIdleTimeout(cfg.idleTimeoutSec());
+    rtmpServer->setConnectionLimits(cfg.maxConnections(), cfg.maxConnectionsPerIp());
 
     // 回源（edge 模式）：本地未命中时向源站 HTTP-FLV pull。
     // 声明在 HTTP 解析器之前，使各 play resolver 能捕获并在运行时回退。
@@ -468,6 +469,7 @@ int main(int argc, char* argv[]) {
     HttpServer httpServer(&baseLoop, cfg.httpPort());
     httpServer.setThreadNum(cfg.ioThreads());
     httpServer.setIdleTimeout(cfg.idleTimeoutSec());
+    httpServer.setConnectionLimits(cfg.maxConnections(), cfg.maxConnectionsPerIp());
 
     // 中间件顺序：trace-id -> 限流 -> vhost -> 鉴权 -> handler
     // （trace-id 必须最先：让限流 429 等拦截响应也带得上追踪头与日志）

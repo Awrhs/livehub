@@ -217,6 +217,14 @@ jobs:
           E2E_ARTIFACT_DIR: ${{ github.workspace }}/ext-artifacts
         run: cpp/tests/e2e/e2e_ext.sh "$PWD/cpp/build/bin/streaming_server"
 
+      - name: Run ops E2E (webhook / rate limit / connection limit)
+        if: always()
+        timeout-minutes: 5
+        env:
+          ASAN_OPTIONS: "detect_leaks=0:halt_on_error=0"
+          E2E_ARTIFACT_DIR: ${{ github.workspace }}/ext-artifacts/ops
+        run: cpp/tests/e2e/e2e_ops.sh "$PWD/cpp/build/bin/streaming_server"
+
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4

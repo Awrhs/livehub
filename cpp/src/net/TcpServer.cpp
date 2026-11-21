@@ -87,6 +87,19 @@ void TcpServer::newConnection(int sockfd,
                               const struct sockaddr_in& peerAddr) {
     loop_->assertInLoopThread();
 
+    // 连接数上限（防止单个来源或洪泛耗尽 fd/内存）
+    uint32_t ip = peerAddr.sin_addr.s_addr;
+    if ((maxConnections_ > 0 && static_cast<int>(connections_.size()) >= maxConnections_) ||
+        (maxPerIp_ > 0 && perIp_[ip] >= maxPerIp_)) {
+        if ((rejected_++ & 1023) == 0)  // 首次及每 1024 次告警一次
+            LOG_WARN("TcpServer [%s] connection limit reached (total=%zu, ip=%s), rejected %llu",
+                     name_.c_str(), connections_.size(),
+                     TcpConnection::addrToString(peerAddr).c_str(),
+                     static_cast<unsigned long long>(rejected_));
+        ::close(sockfd);
+        return;
+    }
+
     // 轮询选一个 subLoop（无 pool 时返回 baseLoop）
     EventLoop* ioLoop = threadPool_->getNextLoop();
 
@@ -102,6 +115,8 @@ void TcpServer::newConnection(int sockfd,
     std::shared_ptr<TcpConnection> conn(
         new TcpConnection(ioLoop, connName, sockfd, localAddr, peerAddr));
     connections_[connName] = conn;
+    ++perIp_[ip];
+    connIp_[connName] = ip;
     conn->setConnectionCallback(connectionCallback_);
     conn->setMessageCallback(messageCallback_);
     conn->setWriteCompleteCallback(writeCompleteCallback_);
@@ -131,6 +146,12 @@ void TcpServer::removeConnectionInLoop(
     loop_->assertInLoopThread();
     LOG_INFO("remove connection [%s]", conn->name().c_str());
     size_t n = connections_.erase(conn->name());
+    auto ipIt = connIp_.find(conn->name());
+    if (ipIt != connIp_.end()) {
+        auto pi = perIp_.find(ipIt->second);
+        if (pi != perIp_.end() && --pi->second <= 0) perIp_.erase(pi);
+        connIp_.erase(ipIt);
+    }
     (void)n;
     EventLoop* ioLoop = conn->getLoop();
     ioLoop->queueInLoop([conn] { conn->connectDestroyed(); });

@@ -57,6 +57,11 @@ public:
 
     /// 设置空闲连接超时（秒），0 表示不踢除
     void setIdleTimeout(int seconds) { idleTimeout_ = seconds; }
+    /// 连接数上限（0 = 不限）：超限的新连接被立即关闭
+    void setConnectionLimits(int total, int perIp) {
+        maxConnections_ = total;
+        maxPerIp_ = perIp;
+    }
 
     void start();
     /// 有序关闭（须在 baseLoop 线程、baseLoop 已停止后调用）：
@@ -84,6 +89,11 @@ private:
     int nextConnId_;
     int idleTimeout_ = 0;  // 秒，0=不超时
     ConnectionMap connections_;
+    int maxConnections_ = 0;
+    int maxPerIp_ = 0;
+    std::unordered_map<uint32_t, int> perIp_;            // baseLoop 线程访问
+    std::unordered_map<std::string, uint32_t> connIp_;   // 连接名 → IP
+    uint64_t rejected_ = 0;
 
     TcpConnection::ConnectionCallback connectionCallback_;
     TcpConnection::MessageCallback messageCallback_;

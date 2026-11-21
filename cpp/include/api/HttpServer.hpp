@@ -74,6 +74,7 @@ public:
 
     void setThreadNum(int n) { server_.setThreadNum(n); }
     void setIdleTimeout(int seconds) { server_.setIdleTimeout(seconds); }
+    void setConnectionLimits(int total, int perIp) { server_.setConnectionLimits(total, perIp); }
     void stop() { server_.stop(); }
 
     /// WebSocket / 协议升级回调：返回 true 表示已接管连接（已写 101 并
