@@ -70,7 +70,7 @@ TEST(chunk_partial_feed) {
     Buffer full;
     ChunkWriter writer(128);
     RtmpMessage src = makeMsg(20, 3, 0, 0, 20);
-    writer.write(full);
+    writer.write(full, src);
 
     // 一次喂 1 字节，状态机最终应能拼出消息
     ChunkParser parser(128);

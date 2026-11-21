@@ -12,12 +12,17 @@ static HttpRequest makeGet(const std::string& path) {
     return req;
 }
 
+// Router::dispatch 需要左值请求，测试中用临时对象时经由此辅助函数
+static bool dispatchReq(Router& r, HttpRequest req, HttpResponse& resp) {
+    return r.dispatch(req, resp);
+}
+
 TEST(router_exact_match) {
     Router r;
     bool hit = false;
     r.get("/health", [&](const HttpRequest&, HttpResponse&) { hit = true; });
     HttpResponse resp;
-    ASSERT_TRUE(r.dispatch(makeGet("/health"), resp));
+    ASSERT_TRUE(dispatchReq(r, makeGet("/health"), resp));
     ASSERT_TRUE(hit);
 }
 
@@ -28,7 +33,7 @@ TEST(router_param_match) {
         id = req.param("id");
     });
     HttpResponse resp;
-    ASSERT_TRUE(r.dispatch(makeGet("/users/42"), resp));
+    ASSERT_TRUE(dispatchReq(r, makeGet("/users/42"), resp));
     ASSERT_EQ(id, std::string("42"));
 }
 
@@ -36,7 +41,7 @@ TEST(router_not_found) {
     Router r;
     r.get("/a", [](const HttpRequest&, HttpResponse&) {});
     HttpResponse resp;
-    ASSERT_FALSE(r.dispatch(makeGet("/missing"), resp));
+    ASSERT_FALSE(dispatchReq(r, makeGet("/missing"), resp));
 }
 
 TEST(router_method_dispatch) {
@@ -72,7 +77,7 @@ TEST(router_multi_params) {
               b = req.param("seq");
           });
     HttpResponse resp;
-    ASSERT_TRUE(r.dispatch(makeGet("/s/live/seq/10"), resp));
+    ASSERT_TRUE(dispatchReq(r, makeGet("/s/live/seq/10"), resp));
     ASSERT_EQ(a, std::string("live"));
     ASSERT_EQ(b, std::string("10"));
 }

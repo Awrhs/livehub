@@ -81,10 +81,12 @@ public:
     /// 返回的是配置快照副本，线程安全。main.cpp 用它 reload 进 VhostManager。
     std::unordered_map<std::string, VhostPtr> vhosts() const;
 
+    /// 重新加载配置文件（SIGHUP 热加载用）
+    void loadFromFile(const std::string& path);
+
 private:
     Config() = default;
     void loadFromEnv();
-    void loadFromFile(const std::string& path);
     void applyKv(const std::string& key, const std::string& value);
     void applyVhostKv(const VhostPtr& vh, const std::string& key,
                       const std::string& value);

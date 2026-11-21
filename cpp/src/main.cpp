@@ -66,6 +66,7 @@
 #include <atomic>
 #include <csignal>
 #include <cstdio>
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
@@ -411,7 +412,8 @@ int main(int argc, char* argv[]) {
     authMw.allow("/api/profiles");
     authMw.allow("/live/");
     authMw.allow("/metrics");
-    if (cfg.enableRateLimit()) httpServer.use(rlMw);
+    // 中间件对象不可拷贝，用 std::ref 包装后交给 std::function
+    if (cfg.enableRateLimit()) httpServer.use(std::ref(rlMw));
 
     // Vhost 解析中间件：按 HTTP Host 头解析 vhost，注入 req 属性；
     // 禁用的 vhost 返回 403。
@@ -432,10 +434,10 @@ int main(int argc, char* argv[]) {
             return true;
         });
 
-    httpServer.use(authMw);
+    httpServer.use(std::ref(authMw));
 
     AccessLog accessLog;
-    httpServer.setAfterRequest(accessLog);
+    httpServer.setAfterRequest(std::ref(accessLog));
 
     // HLS / HTTP-FLV：统一在 /live/:resource 按后缀分发，
     // 避免 .m3u8 与 .flv 两个同形路由 /live/:x 互相遮蔽。
@@ -984,7 +986,7 @@ int main(int argc, char* argv[]) {
     });
 
     // 每分钟检查磁盘水位，超阈值清理最旧录像
-    uint64_t watermarkTimer = baseLoop.runEvery(60.0, [&] {
+    auto watermarkTimer = baseLoop.runEvery(60.0, [&] {
         diskWatermark.check();
     });
     (void)watermarkTimer;

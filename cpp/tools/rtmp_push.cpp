@@ -190,7 +190,9 @@ bool waitForCreateStreamResult(int fd, Buffer& in, ChunkParser& parser,
             return false;
         if (msg.typeId == 20) {
             // AMF0 command: [cmd(string), txnId(number), props, info...]
-            Buffer p = msg.payload;
+            Buffer p;
+            p.append(reinterpret_cast<const char*>(msg.payload.data()),
+                     msg.payload.size());
             Amf0Value cmd;
             if (!cmd.decode(p)) continue;
             std::string name = cmd.asString();
@@ -206,9 +208,8 @@ bool waitForCreateStreamResult(int fd, Buffer& in, ChunkParser& parser,
             }
         } else if (msg.typeId == 1) {
             // Set Chunk Size
-            if (msg.payload.readableBytes() >= 4) {
-                const uint8_t* d =
-                    reinterpret_cast<const uint8_t*>(msg.payload.peek());
+            if (msg.payload.size() >= 4) {
+                const uint8_t* d = msg.payload.data();
                 uint32_t sz = (uint32_t(d[0]) << 24) |
                               (uint32_t(d[1]) << 16) |
                               (uint32_t(d[2]) << 8) | d[3];

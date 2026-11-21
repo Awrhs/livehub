@@ -85,7 +85,7 @@ int main(int argc, char** argv) {
     const char* msg = "BENCH_PAYLOAD_1234567890";
     const size_t msgLen = std::strlen(msg);
 
-    auto t0 = std::chrono::high_resolution_clock::now();
+    auto t0 = std::chrono::steady_clock::now();
     auto deadline = t0 + std::chrono::seconds(seconds);
     std::atomic<long long> sent{0}, recv{0};
 
