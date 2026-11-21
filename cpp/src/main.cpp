@@ -420,9 +420,8 @@ int main(int argc, char* argv[]) {
     httpServer.use(
         [&](const std::shared_ptr<TcpConnection>&, HttpRequest& req,
             HttpResponse& resp) -> bool {
-            std::string host;
-            auto it = req.headers().find("Host");
-            if (it != req.headers().end()) host = it->second;
+            // 注意：头名在解析时已统一小写，必须用 header() 查询
+            std::string host = req.header("Host");
             auto vh = vhostManager->resolve(host);
             if (!vh || !vh->enabled) {
                 resp.setStatusCode(HttpStatusCode::k403Forbidden);

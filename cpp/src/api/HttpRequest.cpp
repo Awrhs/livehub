@@ -8,37 +8,50 @@ namespace streaming {
 
 bool HttpRequest::parse(Buffer* buf) {
     while (state_ != HttpRequestParseState::kParseDone) {
+        if (state_ == HttpRequestParseState::kParseError) return false;
         if (state_ == HttpRequestParseState::kParseRequestLine ||
             state_ == HttpRequestParseState::kParseHeaders) {
             // 找一行（以 \r\n 结尾）
             const char* crlf = buf->findCRLF();
             if (!crlf) {
-                return false;  // 数据不完整
+                // 数据不完整；但若未完成的头部已超限，直接拒绝（防内存耗尽）
+                if (headerBytes_ + buf->readableBytes() > kMaxHeaderBytes)
+                    return fail(431);
+                return false;
             }
-            std::string line(buf->peek(),
-                             static_cast<size_t>(crlf - buf->peek()));
+            size_t lineLen = static_cast<size_t>(crlf - buf->peek());
+            headerBytes_ += lineLen + 2;
+            if (headerBytes_ > kMaxHeaderBytes) return fail(431);
+            std::string line(buf->peek(), lineLen);
             buf->retrieveUntil(crlf + 2);  // 跳过 \r\n
 
             if (state_ == HttpRequestParseState::kParseRequestLine) {
-                if (!parseRequestLine(line)) {
-                    return false;
-                }
+                if (!parseRequestLine(line)) return fail(400);
                 state_ = HttpRequestParseState::kParseHeaders;
             } else {
                 // 空行表示头部结束
                 if (line.empty()) {
-                    // 若有 Content-Length，继续解析 body
+                    // 不支持分块请求体
+                    std::string te = toLower(header("transfer-encoding"));
+                    if (!te.empty() && te != "identity") return fail(501);
+                    // 若有 Content-Length，继续解析 body（严格十进制，防 stoul 抛异常）
                     std::string cl = header("content-length");
                     if (!cl.empty()) {
-                        contentLength_ = std::stoul(cl);
-                        state_ = HttpRequestParseState::kParseBody;
+                        size_t n = 0;
+                        for (char c : cl) {
+                            if (c < '0' || c > '9') return fail(400);
+                            n = n * 10 + static_cast<size_t>(c - '0');
+                            if (n > kMaxBodyBytes) return fail(413);
+                        }
+                        contentLength_ = n;
+                        state_ = contentLength_ > 0
+                                     ? HttpRequestParseState::kParseBody
+                                     : HttpRequestParseState::kParseDone;
                     } else {
                         state_ = HttpRequestParseState::kParseDone;
                     }
                 } else {
-                    if (!parseHeader(line)) {
-                        return false;
-                    }
+                    if (!parseHeader(line)) return fail(400);
                 }
             }
         } else if (state_ == HttpRequestParseState::kParseBody) {
@@ -95,8 +108,10 @@ bool HttpRequest::parseHeader(const std::string& line) {
     std::string key = toLower(line.substr(0, colon));
     std::string value = line.substr(colon + 1);
     // 去除前导空格
-    size_t start = value.find_first_not_of(' ');
-    if (start != std::string::npos) value = value.substr(start);
+    size_t start = value.find_first_not_of(" \t");
+    size_t end = value.find_last_not_of(" \t");
+    value = (start == std::string::npos) ? std::string()
+                                         : value.substr(start, end - start + 1);
     headers_[key] = value;
     return true;
 }

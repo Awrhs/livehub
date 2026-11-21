@@ -31,19 +31,19 @@ TEST(http_post_with_body) {
 }
 
 TEST(http_partial_arrival) {
+    // 与 TcpConnection 一致：数据陆续追加到同一个输入 Buffer
     HttpRequest req;
-    Buffer b1;
-    b1.append("GET /path HTTP/1.1\r");  // 缺 \n
-    ASSERT_FALSE(req.parse(&b1));
+    Buffer b;
+    b.append("GET /path HTTP/1.1\r");  // 缺 \n
+    ASSERT_FALSE(req.parse(&b));
     ASSERT_FALSE(req.done());
+    ASSERT_FALSE(req.hasError());
 
-    Buffer b2;
-    b2.append("\nHost: h\r\n");  // 补全请求行 + 半个头
-    ASSERT_FALSE(req.parse(&b2));
+    b.append("\nHost: h\r\n");  // 补全请求行 + 一个头
+    ASSERT_FALSE(req.parse(&b));
 
-    Buffer b3;
-    b3.append("\r\n");  // 头结束
-    ASSERT_TRUE(req.parse(&b3));
+    b.append("\r\n");  // 头结束
+    ASSERT_TRUE(req.parse(&b));
     ASSERT_EQ(req.path(), std::string("/path"));
 }
 

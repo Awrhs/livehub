@@ -76,12 +76,12 @@ TEST(chunk_partial_feed) {
     ChunkParser parser(128);
     RtmpMessage out;
     bool got = false;
+    Buffer in;  // 与连接输入缓冲一致：逐字节追加到同一 Buffer
     while (full.readableBytes() > 0 && !got) {
         char c = full.peek()[0];
         full.retrieve(1);
-        Buffer one;
-        one.append(&c, 1);
-        got = parser.parseMessage(one, out);
+        in.append(&c, 1);
+        got = parser.parseMessage(in, out);
     }
     ASSERT_TRUE(got);
     ASSERT_EQ(out.typeId, uint8_t(20));

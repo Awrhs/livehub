@@ -19,7 +19,9 @@ TEST(redis_encode_command) {
               std::string("*2\r\n$3\r\nGET\r\n$4\r\na\r\nb\r\n"));
     std::string bin = std::string("x\0y", 3);
     cmd = RedisClient::encodeCommand({"SET", "k", bin});
-    ASSERT_EQ(cmd, std::string("*3\r\n$3\r\nSET\r\n$1\r\nk\r\n$3\r\nx\0y\r\n"));
+    // 注意：期望值不能直接用含 \0 的 C 字面量构造（会被截断）
+    ASSERT_EQ(cmd, std::string("*3\r\n$3\r\nSET\r\n$1\r\nk\r\n$3\r\n") + bin +
+                       "\r\n");
 }
 
 // ---- RESP2 回复解析 ----
@@ -65,7 +67,7 @@ TEST(redis_parse_bulk) {
     ASSERT_EQ(r.str, std::string("foobar"));
 
     // 载荷内含 CRLF 与 \0（长度前缀驱动，不受内容影响）
-    wire = "$5\r\na\r\nb\r\n";
+    wire = "$4\r\na\r\nb\r\n";
     n = RedisClient::parseReply(wire.data(), wire.size(), &r);
     ASSERT_EQ(n, static_cast<int>(wire.size()));
     ASSERT_EQ(r.str, std::string("a\r\nb"));

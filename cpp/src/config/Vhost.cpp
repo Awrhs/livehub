@@ -49,20 +49,26 @@ VhostPtr VhostManager::defaultVhost() const {
 
 VhostPtr VhostManager::resolve(const std::string& host) const {
     if (host.empty()) return defaultVhost();
-    // 去掉端口
+    // 去掉端口（兼容 IPv6 字面量 [::1]:8080），主机名大小写不敏感
     std::string h = host;
-    auto colon = h.find(':');
-    if (colon != std::string::npos) h = h.substr(0, colon);
+    if (!h.empty() && h[0] == '[') {
+        auto rb = h.find(']');
+        h = (rb == std::string::npos) ? h : h.substr(0, rb + 1);
+    } else {
+        auto colon = h.find(':');
+        if (colon != std::string::npos) h = h.substr(0, colon);
+    }
+    for (auto& c : h) c = static_cast<char>(::tolower(static_cast<unsigned char>(c)));
 
     std::lock_guard<std::mutex> lk(mu_);
     auto it = vhosts_.find(h);
     if (it != vhosts_.end()) return it->second;
 
-    // 通配：*.example.com
-    auto dot = h.find('.');
-    if (dot != std::string::npos) {
-        std::string wildcard = "*" + h.substr(dot);
-        it = vhosts_.find(wildcard);
+    // 通配：*.example.com 匹配任意层级子域，最长后缀优先
+    // （a.b.example.com 依次尝试 *.b.example.com、*.example.com、*.com）
+    for (auto dot = h.find('.'); dot != std::string::npos;
+         dot = h.find('.', dot + 1)) {
+        it = vhosts_.find("*" + h.substr(dot));
         if (it != vhosts_.end()) return it->second;
     }
 

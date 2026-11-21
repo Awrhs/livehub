@@ -29,6 +29,7 @@ enum class HttpRequestParseState {
     kParseHeaders,      // 解析头部
     kParseBody,         // 解析 body
     kParseDone,
+    kParseError,        // 请求非法（格式错误/超限），连接应回错误码并关闭
 };
 
 /**
@@ -61,13 +62,28 @@ public:
     bool parse(Buffer* buf);
 
     bool done() const { return state_ == HttpRequestParseState::kParseDone; }
+    bool hasError() const { return state_ == HttpRequestParseState::kParseError; }
+    /// 出错时建议返回的 HTTP 状态码（400 / 413 / 431 / 501）
+    int errorStatus() const { return errorStatus_; }
+
+    /// 安全上限：请求行+头部总字节、body 字节
+    static constexpr size_t kMaxHeaderBytes = 64 * 1024;
+    static constexpr size_t kMaxBodyBytes = 16 * 1024 * 1024;
+
+    /// 长连接复用前必须完整清空，避免上一请求的参数/属性泄漏到下一请求
     void reset() {
         method_ = HttpMethod::INVALID;
         path_.clear();
         query_.clear();
         version_.clear();
         headers_.clear();
+        params_.clear();
         body_.clear();
+        attributes.clear();
+        clientIp.clear();
+        contentLength_ = 0;
+        headerBytes_ = 0;
+        errorStatus_ = 0;
         state_ = HttpRequestParseState::kParseRequestLine;
     }
 
@@ -109,6 +125,13 @@ private:
     std::string body_;
     HttpRequestParseState state_;
     size_t contentLength_ = 0;
+    size_t headerBytes_ = 0;
+    int errorStatus_ = 0;
+    bool fail(int status) {
+        errorStatus_ = status;
+        state_ = HttpRequestParseState::kParseError;
+        return false;
+    }
 
     friend class Router;
 };

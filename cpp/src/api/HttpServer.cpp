@@ -31,7 +31,23 @@ void HttpServer::onMessage(const std::shared_ptr<TcpConnection>& conn,
     while (buf->readableBytes() > 0) {
         bool ok = req.parse(buf);
         if (!ok) {
-            // 数据不完整，等待更多数据
+            if (req.hasError()) {
+                // 非法请求：回错误码后关闭连接（流已不可信，不再继续解析）
+                HttpResponse resp(true);
+                int st = req.errorStatus();
+                resp.setStatusCode(static_cast<HttpStatusCode>(st));
+                resp.setStatusMessage(st == 413   ? "Payload Too Large"
+                                      : st == 431 ? "Request Header Fields Too Large"
+                                      : st == 501 ? "Not Implemented"
+                                                  : "Bad Request");
+                resp.setCloseConnection(true);
+                Buffer out;
+                resp.appendToBuffer(&out);
+                conn->send(out.retrieveAllAsString());
+                conn->shutdown();
+                buf->retrieveAll();
+            }
+            // 否则数据不完整，等待更多数据
             return;
         }
         if (req.done()) {

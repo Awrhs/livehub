@@ -39,16 +39,19 @@ double SystemStats::deltaUsage(const CpuSample& prev, const CpuSample& now) {
 
 bool SystemStats::parseMemInfo(const std::string& text, double* usedRatio) {
     uint64_t memTotal = 0, memAvailable = 0;
+    bool haveTotal = false, haveAvail = false;
     std::istringstream is(text);
     std::string key;
     uint64_t kb;
     std::string unit;
     while (is >> key >> kb >> unit) {
-        if (key == "MemTotal:") memTotal = kb;
-        else if (key == "MemAvailable:") memAvailable = kb;
-        if (memTotal > 0 && memAvailable > 0) break;
+        if (key == "MemTotal:") { memTotal = kb; haveTotal = true; }
+        else if (key == "MemAvailable:") { memAvailable = kb; haveAvail = true; }
+        if (haveTotal && haveAvail) break;
     }
-    if (memTotal == 0 || memAvailable > memTotal) return false;
+    // 缺任一字段都视为解析失败（否则会误报内存 100% 已用）
+    if (!haveTotal || !haveAvail || memTotal == 0 || memAvailable > memTotal)
+        return false;
     if (usedRatio) {
         *usedRatio = 1.0 - static_cast<double>(memAvailable) /
                                 static_cast<double>(memTotal);
