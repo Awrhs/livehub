@@ -108,6 +108,11 @@ SdpAnswerResult buildSdpAnswer(const std::string& offer, const SdpAnswerParams& 
     o << "s=streaming-server\r\n";
     o << "t=0 0\r\n";
     o << "a=ice-lite\r\n";
+    // ICE 凭据与 DTLS 指纹放在会话级（对所有 m 行生效；部分实现在被拒绝的 m 行上也要求能解析到）
+    o << "a=ice-ufrag:" << p.ufrag << "\r\n";
+    o << "a=ice-pwd:" << p.pwd << "\r\n";
+    o << "a=fingerprint:" << p.fingerprint << "\r\n";
+    o << "a=setup:passive\r\n";
     o << "a=group:BUNDLE";
     for (size_t i = 0; i < sections.size(); ++i)
         if (accepted[i] >= 0) o << " " << sections[i].mid;
