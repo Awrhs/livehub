@@ -129,6 +129,7 @@ SdpAnswerResult buildSdpAnswer(const std::string& offer, const SdpAnswerParams& 
             o << "c=IN IP4 0.0.0.0\r\n";
             if (!s.mid.empty()) o << "a=mid:" << s.mid << "\r\n";
             o << "a=inactive\r\n";
+            o << "a=rtcp-mux\r\n";  // 部分实现（aiortc）对所有 m 行都要求 rtcp-mux
             continue;
         }
         int pt = accepted[i];
