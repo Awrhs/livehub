@@ -70,6 +70,12 @@ void RtmpConnection::onRead(Buffer* buf) {
         onCompleteMessage(std::move(msg));
         msg = RtmpMessage{};
     }
+    if (chunkParser_.hasError()) {
+        // 协议错误：后续字节流已无法对齐，直接断开
+        LOG_WARN("rtmp: chunk protocol error, closing connection");
+        buf->retrieveAll();
+        if (auto c = conn_.lock()) c->forceClose();
+    }
 }
 
 void RtmpConnection::onHandshakeDone() {
