@@ -208,6 +208,12 @@ void TcpConnection::handleWrite() {
         return;
     }
 
+    if (outputBuffer_.readableBytes() == 0) {
+        // 无数据可写却仍关注 EPOLLOUT 会导致 epoll 忙循环
+        channel_.disableWriting();
+        if (state_ == kDisconnecting) shutdownInLoop();
+        return;
+    }
     ssize_t n = ::write(socket_.fd(), outputBuffer_.peek(),
                         outputBuffer_.readableBytes());
     if (n > 0) {
@@ -223,8 +229,12 @@ void TcpConnection::handleWrite() {
                 shutdownInLoop();
             }
         }
+    } else if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) {
+        // 暂不可写，等待下一次 EPOLLOUT
     } else {
-        LOG_ERROR("TcpConnection::handleWrite write error: %s", strerror(errno));
+        LOG_WARN("TcpConnection::handleWrite write error: %s, closing [%s]",
+                 strerror(errno), name_.c_str());
+        handleClose();
     }
 }
 
