@@ -92,8 +92,10 @@ void WebRtcIngest::onIceData(const uint8_t* data, size_t len,
         // 服务端暂不处理 RR（可扩展关键帧请求）
     } else {
         out = srtpRecv_->unprotectRtp(buf, static_cast<int>(len));
-        if (out > 0) {
-            depacketizer_->feed(buf, static_cast<size_t>(out));
+        if (out > 12) {
+            int pt = buf[1] & 0x7F;
+            if (videoPt_ < 0 || pt == videoPt_)
+                depacketizer_->feed(buf, static_cast<size_t>(out));
         }
     }
 }

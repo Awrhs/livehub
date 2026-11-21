@@ -34,6 +34,8 @@ public:
     const std::string& ufrag() const { return ufrag_; }
     const std::string& pwd() const { return pwd_; }
     std::string candidate() const;
+    /// 仅处理协商出的 H.264 视频 PT（BUNDLE 下同一传输还可能有音频等其它 RTP）
+    void setVideoPayloadType(int pt) { videoPt_ = pt; }
     uint16_t port() const { return ice_ ? ice_->port() : 0; }
     uint32_t ssrc() const { return ssrc_; }
 
@@ -60,6 +62,7 @@ private:
     uint32_t clockBase_ = 0;
     bool haveBase_ = false;
     [[maybe_unused]] uint32_t lastRtpTs_ = 0;
+    int videoPt_ = -1;
     std::vector<uint8_t> sps_, pps_;
 };
 

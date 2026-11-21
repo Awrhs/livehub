@@ -86,14 +86,26 @@ SdpAnswerResult buildSdpAnswer(const std::string& offer, const SdpAnswerParams& 
         return r;
     }
 
-    // 先确定每个 m 行是否接受
+    // 先确定每个 m 行是否接受：首个含 H.264 的视频 → 收/发；含 Opus 的音频 → inactive 接受
+    //（音频暂不收发；以 inactive 接受而非端口 0 拒绝，兼容在拒绝的 m 行上仍需编解码器信息的实现）
     std::vector<int> accepted(sections.size(), -1);  // 接受则为选定 PT
+    std::vector<bool> inactive(sections.size(), false);
     for (size_t i = 0; i < sections.size(); ++i) {
         if (sections[i].media == "video" && r.videoPayloadType < 0) {
             int pt = pickH264(sections[i]);
             if (pt >= 0) {
                 accepted[i] = pt;
                 r.videoPayloadType = pt;
+            }
+        } else if (sections[i].media == "audio") {
+            for (int pt : sections[i].pts) {
+                auto it = sections[i].rtpmap.find(pt);
+                if (it != sections[i].rtpmap.end() &&
+                    lower(it->second).compare(0, 5, "opus/") == 0) {
+                    accepted[i] = pt;
+                    inactive[i] = true;
+                    break;
+                }
             }
         }
     }
@@ -129,11 +141,13 @@ SdpAnswerResult buildSdpAnswer(const std::string& offer, const SdpAnswerParams& 
             o << "c=IN IP4 0.0.0.0\r\n";
             if (!s.mid.empty()) o << "a=mid:" << s.mid << "\r\n";
             o << "a=inactive\r\n";
+            if (!s.pts.empty() && s.rtpmap.count(s.pts[0]))
+                o << "a=rtpmap:" << s.pts[0] << " " << s.rtpmap.at(s.pts[0]) << "\r\n";
             o << "a=rtcp-mux\r\n";  // 部分实现（aiortc）对所有 m 行都要求 rtcp-mux
             continue;
         }
         int pt = accepted[i];
-        o << "m=video " << p.port << " UDP/TLS/RTP/SAVPF " << pt << "\r\n";
+        o << "m=" << s.media << " " << p.port << " UDP/TLS/RTP/SAVPF " << pt << "\r\n";
         o << "c=IN IP4 0.0.0.0\r\n";
         o << "a=rtcp:9 IN IP4 0.0.0.0\r\n";
         o << "a=ice-ufrag:" << p.ufrag << "\r\n";
@@ -141,13 +155,16 @@ SdpAnswerResult buildSdpAnswer(const std::string& offer, const SdpAnswerParams& 
         o << "a=fingerprint:" << p.fingerprint << "\r\n";
         o << "a=setup:passive\r\n";
         o << "a=mid:" << s.mid << "\r\n";
-        o << (p.sendVideo ? "a=sendonly\r\n" : "a=recvonly\r\n");
+        if (inactive[i]) o << "a=inactive\r\n";
+        else o << (p.sendVideo ? "a=sendonly\r\n" : "a=recvonly\r\n");
         o << "a=rtcp-mux\r\n";
         o << "a=rtpmap:" << pt << " " << s.rtpmap.at(pt) << "\r\n";
         if (s.fmtp.count(pt)) o << "a=fmtp:" << pt << " " << s.fmtp.at(pt) << "\r\n";
-        o << "a=rtcp-fb:" << pt << " nack\r\n";
-        o << "a=rtcp-fb:" << pt << " nack pli\r\n";
-        if (p.sendVideo && p.ssrc) {
+        if (!inactive[i]) {
+            o << "a=rtcp-fb:" << pt << " nack\r\n";
+            o << "a=rtcp-fb:" << pt << " nack pli\r\n";
+        }
+        if (p.sendVideo && p.ssrc && !inactive[i]) {
             o << "a=msid:streaming video0\r\n";
             o << "a=ssrc:" << p.ssrc << " cname:streaming\r\n";
             o << "a=ssrc:" << p.ssrc << " msid:streaming video0\r\n";

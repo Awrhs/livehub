@@ -49,6 +49,7 @@ void WhipHandler::registerRoutes(HttpServer& server) {
                     p.candidateLine = webrtcCandidateLine(candidateIp_, ingest->port());
                     auto ans = buildSdpAnswer(req.body(), p);
                     if (!ans.ok) return fail(HttpStatusCode::k400BadRequest, ans.error);
+                    ingest->setVideoPayloadType(ans.videoPayloadType);
                     stream->setHasPublisher(true);
 
                     resp.setStatusCode(HttpStatusCode::k201Created);
