@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <unordered_map>
+#include <vector>
 
 namespace streaming {
 

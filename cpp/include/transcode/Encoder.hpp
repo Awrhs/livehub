@@ -9,6 +9,7 @@
 #ifdef HAVE_LIBAV
 extern "C" {
 #include <libavcodec/avcodec.h>
+#include <vector>
 }
 #endif
 
