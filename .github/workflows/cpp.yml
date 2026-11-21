@@ -210,9 +210,15 @@ jobs:
           cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Debug -DENABLE_ASAN=ON -DENABLE_TESTS=OFF -DENABLE_TOOLS=OFF
           cmake --build cpp/build --target streaming_server -j"$(nproc)"
 
+      - name: Install aiortc (third-party WebRTC client)
+        run: |
+          python3 -m venv /tmp/webrtc-venv
+          /tmp/webrtc-venv/bin/pip install --quiet aiortc aiohttp
+
       - name: Run extension E2E
-        timeout-minutes: 8
+        timeout-minutes: 10
         env:
+          WEBRTC_PY: /tmp/webrtc-venv/bin/python
           ASAN_OPTIONS: "detect_leaks=0:halt_on_error=0"
           E2E_ARTIFACT_DIR: ${{ github.workspace }}/ext-artifacts
         run: cpp/tests/e2e/e2e_ext.sh "$PWD/cpp/build/bin/streaming_server"
