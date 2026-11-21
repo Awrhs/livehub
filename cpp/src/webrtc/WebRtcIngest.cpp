@@ -44,7 +44,17 @@ WebRtcIngest::WebRtcIngest(EventLoop* loop, uint16_t udpPort, std::string ufrag,
             srtpRecv_ = std::make_unique<SrtpSession>();
             if (!srtpRecv_->initRecv(keys.profile, keys.recvKey, keys.recvSalt))
                 LOG_WARN("WebRtcIngest: SRTP init failed (profile %d)", keys.profile);
+            srtpSend_ = std::make_unique<SrtpSession>();
+            srtpSend_->initSend(keys.profile, keys.sendKey, keys.sendSalt);
             dtlsReady_ = true;
+            // 定期请求关键帧（RTCP PLI）：WebRTC 编码器默认关键帧间隔很长，
+            // 不请求则 HLS 无法按时切片、新观众起播慢
+            if (loop_) {
+                std::weak_ptr<WebRtcIngest> weak = shared_from_this();
+                pliTimer_ = loop_->runEvery(2.0, [weak] {
+                    if (auto self = weak.lock()) self->sendPli();
+                });
+            }
         });
 
     depacketizer_ = std::make_unique<H264RtpDepacketizer>();
@@ -64,7 +74,22 @@ void WebRtcIngest::start() {
 
 void WebRtcIngest::stop() {
     if (!started_.exchange(false)) return;
+    if (loop_ && pliTimer_) {
+        loop_->cancel(pliTimer_);
+        pliTimer_ = TimerId();
+    }
     if (ice_) ice_->stop();
+}
+
+void WebRtcIngest::sendPli() {
+    uint32_t media = remoteVideoSsrc_.load();
+    if (!dtlsReady_ || !srtpSend_ || !ice_ || media == 0) return;
+    // RFC 4585 6.3.1 PLI：V=2,P=0,FMT=1 | PT=206(PSFB) | length=2 | sender SSRC | media SSRC
+    uint8_t buf[64] = {0x81, 206, 0x00, 0x02, 0, 0, 0, 1,
+                       static_cast<uint8_t>(media >> 24), static_cast<uint8_t>(media >> 16),
+                       static_cast<uint8_t>(media >> 8), static_cast<uint8_t>(media)};
+    int n = srtpSend_->protectRtcp(buf, 12, sizeof(buf));
+    if (n > 0) ice_->send(buf, static_cast<size_t>(n));
 }
 
 std::string WebRtcIngest::candidate() const {
@@ -93,6 +118,12 @@ void WebRtcIngest::onIceData(const uint8_t* data, size_t len,
         out = srtpRecv_->unprotectRtp(buf, static_cast<int>(len));
         if (out > 12) {
             int pt = buf[1] & 0x7F;
+            if (remoteVideoSsrc_.load() == 0 && (videoPt_ < 0 || pt == videoPt_)) {
+                uint32_t ssrc = (uint32_t(buf[8]) << 24) | (uint32_t(buf[9]) << 16) |
+                                (uint32_t(buf[10]) << 8) | buf[11];
+                remoteVideoSsrc_.store(ssrc);
+                sendPli();  // 立即请求一次关键帧，加快起播
+            }
             if (videoPt_ < 0 || pt == videoPt_)
                 depacketizer_->feed(buf, static_cast<size_t>(out));
         }

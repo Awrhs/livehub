@@ -1,5 +1,7 @@
 #pragma once
 
+#include "net/Timer.hpp"
+
 #include "rtmp/MediaStream.hpp"
 #include "webrtc/DtlsTransport.hpp"
 #include "webrtc/H264RtpDepacketizer.hpp"
@@ -47,10 +49,14 @@ private:
     void onIceData(const uint8_t* data, size_t len, const sockaddr_in& peer);
     void onNalu(const uint8_t* nalu, size_t len, uint32_t rtpTs, bool marker);
 
-    [[maybe_unused]] EventLoop* loop_;
+    EventLoop* loop_;
     std::unique_ptr<IceAgent> ice_;
     std::unique_ptr<DtlsTransport> dtls_;
     std::unique_ptr<SrtpSession> srtpRecv_;
+    std::unique_ptr<SrtpSession> srtpSend_;   // 发送 RTCP（PLI）
+    std::atomic<uint32_t> remoteVideoSsrc_{0};
+    TimerId pliTimer_;
+    void sendPli();
     std::unique_ptr<H264RtpDepacketizer> depacketizer_;
 
     std::string ufrag_, pwd_, localFingerprint_;
