@@ -21,8 +21,15 @@
 | 慢观众背压（丢帧至关键帧 / 超限断开）、空闲超时 | ✅ | E2E |
 | TSan 下全部 E2E 场景无数据竞争报告 | ✅ | E2E (TSan) |
 | 鉴权：管理令牌、流 token（stream/scope 绑定）、RTMP/HTTP-FLV/HLS 播放鉴权 | ✅ | E2E |
-| WS-FLV / 限流 / webhook | ⚠️ 编译通过，未经端到端验证 | — |
-| SRT / WebRTC / RTSP / 转码 / DVR / 集群 | ⚠️ 编译通过，未经验证，推测问题很多 | — |
+| WS-FLV | ✅ | E2E |
+| 带活跃推流/观众时 SIGTERM 优雅退出 | ✅ | E2E (ASan/TSan)、Soak |
+| 6 分钟连接反复建立/销毁：RSS/fd 不增长 | ✅ | Soak（Release） |
+| Docker 镜像构建、推拉流、docker stop | ✅ | Docker 冒烟 |
+| H.265 / Enhanced RTMP（RTMP/HTTP-FLV/HLS 拉流） | ✅ | 扩展 E2E |
+| RTSP 拉流（TCP） | ✅ | 扩展 E2E |
+| DVR 录制为 fMP4（可播放、从关键帧开始、音视频同基准） | ✅ | 扩展 E2E |
+| SRT | ❌ 握手失败（手写协议栈），计划改用 libsrt | 扩展 E2E |
+| 限流 / webhook / WebRTC / 转码 / 集群 | ⚠️ 编译通过，未经验证 | — |
 
 ### 第一轮已修复的致命问题（节选）
 
@@ -52,19 +59,26 @@
 - [x] **超时**：推流端停止发送（假死）检测；空闲连接超时默认开启（读写均无进展 30s 断开）
 - [x] **ThreadSanitizer CI**：发布者线程直接回调各观众连接，跨线程交互多，需要 TSan 持续检查
 - [x] **E2E 扩展**：B 帧、48kHz 立体声、8 路并发观众、重复推流、断流重推、慢观众、空闲超时
-- [ ] **E2E 待补**：WS-FLV；长时间 soak（RSS 不持续增长）
+- [x] **E2E 补齐**：WS-FLV；6 分钟 soak（RSS/fd 稳定）；带活跃连接的优雅退出
 
 ### P1 —— 安全与运维
 
 - [x] 鉴权重做并端到端验证：此前 `/api/token` 无需鉴权（任何人可领 token）、HTTP 播放不鉴权、
       源码内置 JWT 密钥。现管理员签发绑定 stream/scope/ttl 的 token，RTMP/HTTP-FLV/HLS/WS-FLV 统一校验
 - [ ] 连接数上限（全局 / 单 IP）
-- [ ] RTMP Acknowledgement（窗口确认）发送，兼容严格客户端
+- [x] RTMP Acknowledgement（窗口确认）发送，兼容严格客户端
 - [ ] 时间戳跳变/回退处理（分片 discontinuity、FLV 时间戳单调化）
 - [ ] HLS 响应头（`Cache-Control`、CORS）、m3u8 与分片的 MIME 类型
-- [ ] Dockerfile 在 CI 中构建并做冒烟测试
-- [ ] 编译告警清零（`LOG_*` 变参宏告警等），Release 构建开启 `-Werror`
+- [x] Dockerfile 在 CI 中构建并做冒烟测试（修复默认 CMD 引用不存在的配置、工作目录不可写）
+- [x] GCC 编译告警清零并开启 `-Werror`（clang 仍有 ~20 条未使用字段告警待清理）
 - [ ] 文档：配置项说明与实际代码对齐；部署指南
+
+### P1 —— 其它已知问题
+
+- [ ] SIGHUP 热加载：Config 顶层标量在其它线程读取时被直接改写（数据竞争）
+- [ ] webhook 同步鉴权在 IO 线程中阻塞执行 HTTP 请求（超时期间该 IO 线程上的所有连接停滞）
+- [ ] AsyncFileWriter 队列满时丢弃写入会损坏 HLS 分片，可改为丢弃整个分片
+- [ ] clang `-Wunused-private-field` 告警清理
 
 ### P1 —— 性能
 
@@ -76,11 +90,11 @@
 
 按"能否端到端验证"逐个推进；无法验证的模块宁可暂时关闭，也不对外宣称支持。
 
-- [ ] Enhanced RTMP / H.265 推流（ffmpeg 7 原生支持）E2E
+- [x] Enhanced RTMP / H.265：按规范重写解析（原实现格式与规范不符），RTMP/FLV/HLS 拉流 E2E 通过
 - [ ] SRT：评估改用 libsrt 替换手写协议栈
 - [ ] WebRTC（WHIP/WHEP）：评估改用 libdatachannel 等成熟库
-- [ ] RTSP 拉流 E2E
-- [ ] DVR / fMP4 录制产物可播放性验证
+- [x] RTSP 拉流 E2E
+- [x] DVR / fMP4 录制产物可播放（修复 trun 标志位、非关键帧起录、音视频基准不一致）
 - [ ] 转码 / ABR
 - [ ] 源站-边缘集群 E2E（两个实例）
 
