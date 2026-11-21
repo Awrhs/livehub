@@ -46,7 +46,31 @@ RtmpConnection::~RtmpConnection() {
     }
 }
 
+void RtmpConnection::maybeSendAck() {
+    if (peerAckWindow_ == 0 || !handshakeDone_) return;
+    if (bytesIn_ - lastAckBytes_ < peerAckWindow_) return;
+    lastAckBytes_ = bytesIn_;
+    RtmpMessage m;
+    m.typeId = kMsgAcknowledgement;
+    m.chunkStreamId = 2;  // 协议控制消息
+    m.streamId = 0;
+    m.timestamp = 0;
+    uint32_t seq = static_cast<uint32_t>(bytesIn_);  // 按协议对 2^32 取模
+    m.payload = {uint8_t(seq >> 24), uint8_t(seq >> 16), uint8_t(seq >> 8),
+                 uint8_t(seq)};
+    sendMessage(m);
+}
+
 void RtmpConnection::onRead(Buffer* buf) {
+    // 统计新到达字节（缓冲中可能残留上次未消费的半包）
+    size_t avail = buf->readableBytes();
+    if (avail > lastUnconsumed_) bytesIn_ += avail - lastUnconsumed_;
+    onReadImpl(buf);
+    lastUnconsumed_ = buf->readableBytes();
+    maybeSendAck();
+}
+
+void RtmpConnection::onReadImpl(Buffer* buf) {
     if (!handshakeDone_) {
         Buffer out;
         bool done = handshake_.onRead(*buf, out);
@@ -105,6 +129,14 @@ void RtmpConnection::onCompleteMessage(RtmpMessage&& msg) {
             }
             break;
         case kMsgWindowAckSize:
+            // 对端要求本端每收到 N 字节回一次 Acknowledgement
+            if (msg.payload.size() >= 4) {
+                peerAckWindow_ = (uint32_t(msg.payload[0]) << 24) |
+                                 (uint32_t(msg.payload[1]) << 16) |
+                                 (uint32_t(msg.payload[2]) << 8) |
+                                 uint32_t(msg.payload[3]);
+            }
+            break;
         case kMsgSetPeerBandwidth:
         case kMsgAcknowledgement:
         case kMsgUserControlMessage:

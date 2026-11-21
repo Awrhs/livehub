@@ -4,8 +4,8 @@
  * 在一个 baseLoop + subReactor 线程池上同时运行：
  *   - HTTP  API/静态/metrics     （:8080）
  *   - RTMP  推流                  （:1935）
- *   - HLS   /live/*.m3u8, *.ts
- *   - HTTP-FLV /live/*.flv
+ *   - HLS   /live/<stream>.m3u8, /live/<stream>/<n>.ts
+ *   - HTTP-FLV /live/<stream>.flv
  *   - 集群管理 API / 健康检查 / 回源
  *   - 转码管理
  *

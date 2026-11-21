@@ -87,7 +87,7 @@ void H264RtpPacketizer::packetize(
     for (size_t i = 0; i < nalus.size(); ++i) {
         const auto& nalu = nalus[i];
         bool isLast = (i + 1 == nalus.size());
-        if (nalu.size() <= mtu_ - 14) {
+        if (nalu.size() + 14 <= static_cast<size_t>(mtu_)) {
             sendNaluSingle(nalu.data(), nalu.size(), ts, isLast);
         } else {
             // 大 NALU 用 FU-A。marker 仅在整个访问单元最后一个 NALU 时置位，

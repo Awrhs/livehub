@@ -238,7 +238,6 @@ void DtlsTransport::doHandshakeStep() {
         established_ = true;
         // 导出 SRTP key/salt（RFC 5764）
         unsigned char buf[60];
-        size_t len = 0;
         if (SSL_export_keying_material(impl_->ssl, buf, sizeof(buf),
                                        "EXTRACTOR-dtls_srtp", 19, nullptr, 0,
                                        0) == 1) {

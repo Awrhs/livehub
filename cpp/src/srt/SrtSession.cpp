@@ -149,6 +149,7 @@ void SrtSession::handleHandshake(const uint8_t* data, size_t len) {
 
 void SrtSession::sendHandshake(uint32_t type, uint32_t initialSeq,
                                const std::string& streamId) {
+    (void)streamId;  // TODO(srt): caller 模式应在 SRT 握手扩展中携带 streamid
     std::vector<uint8_t> hs(128, 0);
     auto put32 = [&](size_t off, uint32_t v) {
         v = htonl(v);

@@ -95,18 +95,19 @@ private:
 #define LOG_BASENAME \
     (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 
-#define LOG_IMPL(level, fmt, ...)                                        \
+// 格式串并入 __VA_ARGS__（不用 ##__VA_ARGS__ 扩展），无参数调用也符合 C++17 标准
+#define LOG_IMPL(level, ...)                                             \
     do {                                                                 \
-        ::streaming::Logger::instance().log(                            \
-            level, LOG_BASENAME, __LINE__, fmt, ##__VA_ARGS__);          \
+        ::streaming::Logger::instance().log(level, LOG_BASENAME,         \
+                                            __LINE__, __VA_ARGS__);      \
     } while (0)
 
-#define LOG_TRACE(fmt, ...) LOG_IMPL(::streaming::LogLevel::TRACE, fmt, ##__VA_ARGS__)
-#define LOG_DEBUG(fmt, ...) LOG_IMPL(::streaming::LogLevel::DEBUG, fmt, ##__VA_ARGS__)
-#define LOG_INFO(fmt, ...)  LOG_IMPL(::streaming::LogLevel::INFO,  fmt, ##__VA_ARGS__)
-#define LOG_WARN(fmt, ...)  LOG_IMPL(::streaming::LogLevel::WARN,  fmt, ##__VA_ARGS__)
-#define LOG_ERROR(fmt, ...) LOG_IMPL(::streaming::LogLevel::ERROR, fmt, ##__VA_ARGS__)
-#define LOG_FATAL(fmt, ...) LOG_IMPL(::streaming::LogLevel::FATAL, fmt, ##__VA_ARGS__)
+#define LOG_TRACE(...) LOG_IMPL(::streaming::LogLevel::TRACE, __VA_ARGS__)
+#define LOG_DEBUG(...) LOG_IMPL(::streaming::LogLevel::DEBUG, __VA_ARGS__)
+#define LOG_INFO(...)  LOG_IMPL(::streaming::LogLevel::INFO,  __VA_ARGS__)
+#define LOG_WARN(...)  LOG_IMPL(::streaming::LogLevel::WARN,  __VA_ARGS__)
+#define LOG_ERROR(...) LOG_IMPL(::streaming::LogLevel::ERROR, __VA_ARGS__)
+#define LOG_FATAL(...) LOG_IMPL(::streaming::LogLevel::FATAL, __VA_ARGS__)
 
 /// 日志级别字符串（紧凑，无对齐填充）
 const char* levelToString(LogLevel level);

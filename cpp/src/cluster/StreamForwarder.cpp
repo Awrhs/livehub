@@ -89,7 +89,7 @@ void writeCommand(Buffer& out, const std::string& cmd, double txnId,
     w.write(out, msg);
 }
 
-void writeData(Buffer& out, const std::vector<Amf0Value>& vals,
+[[maybe_unused]] void writeData(Buffer& out, const std::vector<Amf0Value>& vals,
                uint32_t streamId, uint32_t csid) {
     Buffer payload;
     for (const auto& v : vals) v.encode(payload);

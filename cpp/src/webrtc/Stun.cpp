@@ -63,7 +63,7 @@ bool Stun::parse(const uint8_t* data, size_t len, StunMessage& out) {
     if (len < 20) return false;
     uint16_t msgType = (uint16_t(data[0]) << 8) | data[1];
     uint16_t msgLen = (uint16_t(data[2]) << 8) | data[3];
-    if (msgLen + 20 > len) return false;
+    if (static_cast<size_t>(msgLen) + 20 > len) return false;
     if (data[4] != 0x21 || data[5] != 0x12 || data[6] != 0xA4 ||
         data[7] != 0x42) {
         return false;
@@ -74,11 +74,12 @@ bool Stun::parse(const uint8_t* data, size_t len, StunMessage& out) {
     std::memcpy(out.txId, data + 8, 12);
 
     size_t off = 20;
-    while (off + 4 <= 20 + msgLen) {
+    const size_t end = 20 + static_cast<size_t>(msgLen);
+    while (off + 4 <= end) {
         uint16_t at = (uint16_t(data[off]) << 8) | data[off + 1];
         uint16_t al = (uint16_t(data[off + 2]) << 8) | data[off + 3];
         off += 4;
-        if (off + al > 20 + msgLen) break;
+        if (off + al > end) break;
         StunMessage::Attr attr;
         attr.type = at;
         attr.value.assign(data + off, data + off + al);

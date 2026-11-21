@@ -179,6 +179,17 @@ else
 fi
 check_pull hls "$M3U8" 4 80
 
+echo "== WebSocket-FLV"
+python3 "$(dirname "$0")/ws_flv_client.py" 127.0.0.1 $HTTP "/live/$KEY.flv" 4 >"$WORK/wsflv.out" 2>&1
+WS=$(cat "$WORK/wsflv.out")
+vt=$(echo "$WS" | grep -oE 'video_tags=[0-9]+' | cut -d= -f2)
+at=$(echo "$WS" | grep -oE 'audio_tags=[0-9]+' | cut -d= -f2)
+if echo "$WS" | grep -q 'status=101 flv_header=1' && [ "${vt:-0}" -ge 80 ] && [ "${at:-0}" -ge 80 ]; then
+    pass "WS-FLV 正常（$WS）"
+else
+    fail "WS-FLV 异常（$WS）"
+fi
+
 echo "== B 帧 / 48kHz 立体声 / 带查询串的流名"
 check_pull bf_flv "http://127.0.0.1:$HTTP/live/e2ebf.flv" 4 100
 check_pull bf_hls "http://127.0.0.1:$HTTP/live/e2ebf.m3u8" 4 100

@@ -77,6 +77,8 @@ public:
 
 private:
     void onHandshakeDone();
+    void onReadImpl(Buffer* buf);
+    void maybeSendAck();
     void onCompleteMessage(RtmpMessage&& msg);
     void handleCommand(const RtmpMessage& msg);
     void handleData(const RtmpMessage& msg);
@@ -104,6 +106,11 @@ private:
     ChunkWriter chunkWriter_;
 
     bool handshakeDone_ = false;
+    // 窗口确认（Acknowledgement）
+    uint32_t peerAckWindow_ = 0;
+    uint64_t bytesIn_ = 0;
+    uint64_t lastAckBytes_ = 0;
+    size_t lastUnconsumed_ = 0;
     bool closed_ = false;
     bool publishing_ = false;
     bool playing_ = false;

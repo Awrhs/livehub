@@ -1,4 +1,5 @@
 #include "config/Config.hpp"
+#include "core/Logger.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -46,7 +47,10 @@ bool Config::load(const std::string& file) {
 
 void Config::loadFromFile(const std::string& path) {
     std::ifstream f(path);
-    if (!f) return;
+    if (!f) {
+        LOG_WARN("config file %s not readable, using env/defaults", path.c_str());
+        return;
+    }
 
     // 清空旧的 vhost 配置（顶层标量在 applyKv 中直接覆盖，无需重置）
     vhosts_.clear();
