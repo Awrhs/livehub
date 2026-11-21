@@ -1,4 +1,5 @@
 #include "rtmp/RtmpConnection.hpp"
+#include "rtmp/FlowControl.hpp"
 
 #include "core/Buffer.hpp"
 #include "core/Logger.hpp"
@@ -176,16 +177,21 @@ void RtmpConnection::handleCommand(const RtmpMessage& msg) {
         respondCreateStream(txId);
     } else if (cmd == "publish") {
         // 第 4 参数为 stream key（可能在 cmdObj 之后）
-        std::string key;
+        std::string rawKey, query;
         Amf0Value keyVal;
-        if (keyVal.decode(buf)) key = keyVal.asString();
-        if (key.empty()) key = "stream";
-        streamKey_ = key;
+        if (keyVal.decode(buf)) rawKey = keyVal.asString();
+        splitStreamKey(rawKey, &streamKey_, &query);
+        if (streamKey_.empty()) {
+            onStatus(kDefaultStreamId, "error", "NetStream.Publish.BadName",
+                     "empty stream name");
+            close();
+            return;
+        }
 
-        // 鉴权：按 vhost 配置进行 webhook/JWT 校验
+        // 鉴权：按 vhost 配置进行 webhook/JWT 校验（传入原始 key，含 ?token=）
         if (onAuth_) {
             std::string reason;
-            if (!onAuth_(host_, app_, streamKey_, true, &reason)) {
+            if (!onAuth_(host_, app_, rawKey, true, &reason)) {
                 LOG_WARN("RTMP publish denied: app=%s key=%s host=%s reason=%s",
                          app_.c_str(), streamKey_.c_str(), host_.c_str(),
                          reason.c_str());
@@ -205,18 +211,28 @@ void RtmpConnection::handleCommand(const RtmpMessage& msg) {
             ms->setVhost(host_);
             ms->touch(Timestamp::now().microSecondsSinceEpoch() / 1000);
             stream_ = ms;
-            onPublish_(shared_from_this(), app_, streamKey_, ms);
+            if (!onPublish_(shared_from_this(), app_, streamKey_, ms)) {
+                // 同名流正在推送：拒绝，避免覆盖（流劫持）
+                LOG_WARN("RTMP publish rejected, stream busy: %s",
+                         streamKey_.c_str());
+                onStatus(kDefaultStreamId, "error", "NetStream.Publish.BadName",
+                         "stream already publishing: " + streamKey_);
+                close();
+                return;
+            }
         }
         onStatus(kDefaultStreamId, "status", "NetStream.Publish.Start",
                  "Publishing " + streamKey_);
     } else if (cmd == "play") {
+        std::string rawKey, query;
         Amf0Value keyVal;
-        if (keyVal.decode(buf)) streamKey_ = keyVal.asString();
+        if (keyVal.decode(buf)) rawKey = keyVal.asString();
+        splitStreamKey(rawKey, &streamKey_, &query);
 
-        // 鉴权
+        // 鉴权（传入原始 key，含 ?token=）
         if (onAuth_) {
             std::string reason;
-            if (!onAuth_(host_, app_, streamKey_, false, &reason)) {
+            if (!onAuth_(host_, app_, rawKey, false, &reason)) {
                 LOG_WARN("RTMP play denied: app=%s key=%s host=%s reason=%s",
                          app_.c_str(), streamKey_.c_str(), host_.c_str(),
                          reason.c_str());
@@ -468,6 +484,13 @@ void RtmpConnection::sendMessage(const RtmpMessage& msg) {
     c->send(&out);
 }
 
+void RtmpConnection::splitStreamKey(const std::string& raw, std::string* key,
+                                    std::string* query) {
+    auto q = raw.find('?');
+    *key = raw.substr(0, q);
+    if (query) *query = (q == std::string::npos) ? "" : raw.substr(q + 1);
+}
+
 void RtmpConnection::startPlayback(const std::shared_ptr<MediaStream>& ms) {
     if (!ms || closed_) return;
     stream_ = ms;
@@ -490,9 +513,23 @@ void RtmpConnection::startPlayback(const std::shared_ptr<MediaStream>& ms) {
     // 订阅回调可能运行在发布者线程：只捕获 weak 引用，
     // ChunkWriter::write 无状态，TcpConnection::send 跨线程安全。
     std::weak_ptr<RtmpConnection> weak = shared_from_this();
-    subscriberId_ = ms->subscribeWithGop([weak](const MediaPacket& pkt) {
+    auto flow = std::make_shared<FlowControl>();
+    subscriberId_ = ms->subscribeWithGop([weak, flow](const MediaPacket& pkt) {
         auto self = weak.lock();
         if (!self || self->closed_) return;
+        auto c = self->conn_.lock();
+        if (!c) return;
+        switch (flow->check(pkt, c->pendingOutputBytes())) {
+            case FlowControl::kDrop:
+                return;
+            case FlowControl::kClose:
+                LOG_WARN("rtmp play: slow client, backlog %zu bytes, closing %s",
+                         c->pendingOutputBytes(), c->name().c_str());
+                c->forceClose();
+                return;
+            case FlowControl::kSend:
+                break;
+        }
         RtmpMessage m;
         m.typeId = static_cast<uint8_t>(pkt.type);
         m.chunkStreamId = pkt.type == MediaPacket::kAudio ? 4 : 6;

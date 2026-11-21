@@ -72,8 +72,11 @@ void TcpConnection::send(const std::string& message) {
             // 跨线程：拷贝一份加入 loop 队列
             std::string msg = message;  // 显式拷贝
             auto self = shared_from_this();
-            loop_->runInLoop(
-                [self, msg] { self->sendInLoop(msg.data(), msg.size()); });
+            queuedBytes_.fetch_add(msg.size(), std::memory_order_relaxed);
+            loop_->runInLoop([self, msg] {
+                self->queuedBytes_.fetch_sub(msg.size(), std::memory_order_relaxed);
+                self->sendInLoop(msg.data(), msg.size());
+            });
         }
     }
 }
@@ -86,8 +89,11 @@ void TcpConnection::send(Buffer* buf) {
         } else {
             std::string data = buf->retrieveAllAsString();
             auto self = shared_from_this();
-            loop_->runInLoop(
-                [self, data] { self->sendInLoop(data.data(), data.size()); });
+            queuedBytes_.fetch_add(data.size(), std::memory_order_relaxed);
+            loop_->runInLoop([self, data] {
+                self->queuedBytes_.fetch_sub(data.size(), std::memory_order_relaxed);
+                self->sendInLoop(data.data(), data.size());
+            });
         }
     }
 }
@@ -127,6 +133,7 @@ void TcpConnection::sendInLoop(const void* data, size_t len) {
     if (!faultError && remaining > 0) {
         size_t oldLen = outputBuffer_.readableBytes();
         outputBuffer_.append(static_cast<const char*>(data) + nwrote, remaining);
+        outputBytes_.store(outputBuffer_.readableBytes(), std::memory_order_relaxed);
         if (!channel_.isWriting()) {
             channel_.enableWriting();  // 注册 EPOLLOUT
         }
@@ -218,6 +225,7 @@ void TcpConnection::handleWrite() {
                         outputBuffer_.readableBytes());
     if (n > 0) {
         outputBuffer_.retrieve(static_cast<size_t>(n));
+        outputBytes_.store(outputBuffer_.readableBytes(), std::memory_order_relaxed);
         if (outputBuffer_.readableBytes() == 0) {
             channel_.disableWriting();
             if (writeCompleteCallback_) {

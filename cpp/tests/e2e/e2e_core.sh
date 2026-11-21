@@ -67,14 +67,31 @@ else
     exit 1
 fi
 
-echo "== 推流（H.264 + AAC，40s）"
+rss_kb() { awk '/VmRSS/{print $2}' "/proc/$SERVER_PID/status" 2>/dev/null; }
+RSS0=$(rss_kb)
+echo "  [INFO] 启动后 RSS: ${RSS0} kB"
+
+echo "== 推流（H.264 + AAC，60s）"
 ffmpeg -hide_banner -loglevel warning -re \
     -f lavfi -i "testsrc2=size=640x360:rate=25" \
     -f lavfi -i "sine=frequency=1000:sample_rate=44100" \
     -c:v libx264 -preset ultrafast -tune zerolatency -g 50 -pix_fmt yuv420p \
-    -c:a aac -b:a 64k -t 40 \
+    -c:a aac -b:a 64k -t 60 \
     -f flv "rtmp://127.0.0.1:$RTMP/live/$KEY" >"$WORK/push.log" 2>&1 &
 PUSH_PID=$!
+
+# 第二路：B 帧 + 48kHz 立体声，流名带查询串（服务端应剥离，按 e2ebf 播放）
+ffmpeg -hide_banner -loglevel warning -re \
+    -f lavfi -i "testsrc2=size=320x240:rate=30" \
+    -f lavfi -i "sine=frequency=440:sample_rate=48000" -ac 2 \
+    -c:v libx264 -preset veryfast -bf 2 -g 60 -pix_fmt yuv420p \
+    -c:a aac -b:a 96k -t 60 \
+    -f flv "rtmp://127.0.0.1:$RTMP/live/e2ebf?foo=bar" >"$WORK/push_bf.log" 2>&1 &
+PUSH2_PID=$!
+
+# 慢观众：限速 20KB/s 拉 HTTP-FLV（远低于码率），观察流控
+curl -s --limit-rate 20k --max-time 40 "http://127.0.0.1:$HTTP/live/$KEY.flv" -o /dev/null &
+SLOW_PID=$!
 sleep 8
 
 if kill -0 "$PUSH_PID" 2>/dev/null; then
@@ -112,6 +129,18 @@ check_pull() {
     [ "$errs" -eq 0 ] && pass "$name: 无解码错误" || fail "$name: 出现 $errs 条解码错误"
 }
 
+echo "== 重复推流应被拒绝"
+timeout 15 ffmpeg -hide_banner -loglevel error -re -f lavfi -i "testsrc2=size=160x120:rate=10" \
+    -c:v libx264 -preset ultrafast -t 10 -f flv "rtmp://127.0.0.1:$RTMP/live/$KEY" \
+    >"$WORK/push_dup.log" 2>&1
+rc=$?
+if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]; then
+    pass "同名重复推流被拒绝 (ffmpeg rc=$rc)"
+else
+    fail "同名重复推流未被拒绝 (rc=$rc): $(tail -3 "$WORK/push_dup.log")"
+fi
+kill -0 "$PUSH_PID" 2>/dev/null && pass "原推流不受影响" || fail "原推流被中断"
+
 echo "== RTMP 拉流"
 check_pull rtmp "rtmp://127.0.0.1:$RTMP/live/$KEY" 5 100
 
@@ -144,6 +173,32 @@ else
 fi
 check_pull hls "$M3U8" 4 80
 
+echo "== B 帧 / 48kHz 立体声 / 带查询串的流名"
+check_pull bf_flv "http://127.0.0.1:$HTTP/live/e2ebf.flv" 4 100
+check_pull bf_hls "http://127.0.0.1:$HTTP/live/e2ebf.m3u8" 4 100
+
+echo "== 多观众并发（6 路 HTTP-FLV + 2 路 RTMP）"
+pids=""
+for i in 1 2 3 4 5 6; do
+    timeout 40 ffmpeg -hide_banner -nostats -i "http://127.0.0.1:$HTTP/live/$KEY.flv" \
+        -t 5 -map 0:v:0 -f null - >"$WORK/multi_flv_$i.log" 2>&1 &
+    pids="$pids $!"
+done
+for i in 1 2; do
+    timeout 40 ffmpeg -hide_banner -nostats -i "rtmp://127.0.0.1:$RTMP/live/$KEY" \
+        -t 5 -map 0:v:0 -f null - >"$WORK/multi_rtmp_$i.log" 2>&1 &
+    pids="$pids $!"
+done
+for p in $pids; do wait "$p"; done
+ok=0; total=0
+for f in "$WORK"/multi_*.log; do
+    total=$((total + 1))
+    fr=$(grep -oE 'frame= *[0-9]+' "$f" | tail -1 | grep -oE '[0-9]+')
+    [ "${fr:-0}" -ge 100 ] && ok=$((ok + 1))
+done
+[ "$ok" -eq "$total" ] && pass "并发观众全部正常解码 ($ok/$total)" \
+    || fail "并发观众解码不足 ($ok/$total)"
+
 echo "== API"
 curl -sf --max-time 5 "http://127.0.0.1:$HTTP/metrics" >"$WORK/metrics.txt" \
     && pass "/metrics 可访问 ($(wc -l <"$WORK/metrics.txt") 行)" || fail "/metrics 不可访问"
@@ -158,8 +213,19 @@ head -c 4096 /dev/urandom | timeout 3 nc -q1 127.0.0.1 $HTTP >/dev/null 2>&1
 sleep 1
 kill -0 "$SERVER_PID" 2>/dev/null && pass "畸形输入后进程存活" || fail "畸形输入导致进程退出"
 
+echo "== 慢观众流控"
+kill "$SLOW_PID" 2>/dev/null; wait "$SLOW_PID" 2>/dev/null
+if grep -qE 'slow client' "$LOG"; then
+    pass "慢观众触发流控: $(grep -m1 -E 'slow client' "$LOG" | cut -c1-160)"
+else
+    echo "  [INFO] 慢观众未触发流控（积压可能被内核 socket 缓冲吸收）"
+fi
+RSS1=$(rss_kb)
+echo "  [INFO] 推拉流期间 RSS: ${RSS1} kB（启动时 ${RSS0} kB）"
+
 echo "== 推流结束后的清理"
 for _ in $(seq 1 60); do kill -0 "$PUSH_PID" 2>/dev/null || break; sleep 1; done
+wait "$PUSH2_PID" 2>/dev/null
 if kill -0 "$PUSH_PID" 2>/dev/null; then
     fail "推流 ffmpeg 未按时结束（服务端可能停止读取/背压卡死）"
     kill -9 "$PUSH_PID" 2>/dev/null
@@ -179,9 +245,10 @@ else
     [ "$rc" -eq 0 ] && pass "SIGTERM 正常退出 (rc=0)" || fail "SIGTERM 退出码 $rc"
 fi
 
-if grep -qE 'ERROR: AddressSanitizer|runtime error:|LeakSanitizer' "$LOG"; then
+if grep -qE 'ERROR: AddressSanitizer|runtime error:|LeakSanitizer|WARNING: ThreadSanitizer' "$LOG"; then
     fail "Sanitizer 报告了问题:"
-    grep -A15 -E 'ERROR: AddressSanitizer|runtime error:|LeakSanitizer' "$LOG" | head -60
+    grep -c -E 'WARNING: ThreadSanitizer' "$LOG" | sed 's/^/  TSan 报告数: /'
+    grep -A20 -E 'ERROR: AddressSanitizer|runtime error:|LeakSanitizer|WARNING: ThreadSanitizer' "$LOG" | head -80
 else
     pass "无 Sanitizer 报告"
 fi

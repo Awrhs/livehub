@@ -6,6 +6,7 @@
 #include "net/Socket.hpp"
 
 #include <any>
+#include <atomic>
 #include <arpa/inet.h>
 #include <functional>
 #include <memory>
@@ -93,6 +94,13 @@ public:
     Buffer* inputBuffer() { return &inputBuffer_; }
     Buffer* outputBuffer() { return &outputBuffer_; }
 
+    /// 尚未写入 socket 的字节数（跨线程排队中 + 输出缓冲），任意线程可调用。
+    /// 用于下行流控：慢客户端积压过多时丢帧或断开。
+    size_t pendingOutputBytes() const {
+        return queuedBytes_.load(std::memory_order_relaxed) +
+               outputBytes_.load(std::memory_order_relaxed);
+    }
+
     /// 每收到一次数据刷新一次（用于空闲超时统计）
     Timestamp lastReceiveTime() const { return lastReceiveTime_; }
 
@@ -139,6 +147,8 @@ private:
     Channel channel_;
     Buffer inputBuffer_;
     Buffer outputBuffer_;
+    std::atomic<size_t> queuedBytes_{0};  // 跨线程 send 已投递、尚未执行
+    std::atomic<size_t> outputBytes_{0};  // outputBuffer_ 大小的镜像（loop 线程写）
 
     struct sockaddr_in localAddr_;
     struct sockaddr_in peerAddr_;

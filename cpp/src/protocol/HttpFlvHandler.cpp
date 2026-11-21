@@ -7,6 +7,7 @@
 #include "core/Logger.hpp"
 #include "net/TcpConnection.hpp"
 #include "protocol/FlvMuxer.hpp"
+#include "rtmp/FlowControl.hpp"
 #include "rtmp/MediaStream.hpp"
 
 #include <atomic>
@@ -28,6 +29,7 @@ struct FlvSession {
     std::weak_ptr<MediaStream> stream;
     MediaStream::SubscriberId subId = 0;
     std::atomic<bool> done{false};
+    FlowControl flow;
 
     static void start(const std::shared_ptr<TcpConnection>& c,
                       const std::shared_ptr<MediaStream>& s) {
@@ -50,6 +52,20 @@ struct FlvSession {
             if (!c2 || !c2->connected()) {
                 sess->finish();
                 return;
+            }
+            switch (sess->flow.check(pkt, c2->pendingOutputBytes())) {
+                case FlowControl::kDrop:
+                    if (sess->flow.dropped() == 1)
+                        LOG_WARN("http-flv: slow client %s, backlog %zu bytes, dropping frames",
+                                 c2->name().c_str(), c2->pendingOutputBytes());
+                    return;
+                case FlowControl::kClose:
+                    LOG_WARN("http-flv: slow client, closing %s", c2->name().c_str());
+                    c2->forceClose();
+                    sess->finish();
+                    return;
+                case FlowControl::kSend:
+                    break;
             }
             Buffer out;
             FlvMuxer::writeMediaTag(out, pkt);

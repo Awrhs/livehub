@@ -6,6 +6,7 @@
 #include "core/Logger.hpp"
 #include "net/TcpConnection.hpp"
 #include "protocol/FlvMuxer.hpp"
+#include "rtmp/FlowControl.hpp"
 #include "protocol/WebSocket.hpp"
 #include "rtmp/MediaStream.hpp"
 
@@ -20,6 +21,7 @@ struct WsFlvSession : public std::enable_shared_from_this<WsFlvSession> {
     std::weak_ptr<TcpConnection> conn;
     std::shared_ptr<MediaStream> stream;
     MediaStream::SubscriberId subId = 0;
+    FlowControl flow;
 
     static std::shared_ptr<WsFlvSession> start(
         const std::shared_ptr<TcpConnection>& c,
@@ -56,6 +58,15 @@ struct WsFlvSession : public std::enable_shared_from_this<WsFlvSession> {
                 if (!self) return;  // 会话已析构（析构函数会注销订阅）
                 auto c2 = self->conn.lock();
                 if (!c2 || !c2->connected()) return;
+                switch (self->flow.check(pkt, c2->pendingOutputBytes())) {
+                    case FlowControl::kDrop:
+                        return;
+                    case FlowControl::kClose:
+                        c2->forceClose();
+                        return;
+                    case FlowControl::kSend:
+                        break;
+                }
                 Buffer out;
                 FlvMuxer::writeMediaTag(out, pkt);
                 std::vector<uint8_t> frame = WebSocket::buildFrame(

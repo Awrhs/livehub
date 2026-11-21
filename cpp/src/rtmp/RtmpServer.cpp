@@ -32,17 +32,19 @@ RtmpServer::RtmpServer(EventLoop* loop, uint16_t port, std::string app)
             if (conn->connected()) {
                 auto rc = std::make_shared<RtmpConnection>(conn, app_);
                 rc->setPublishCallback(
-                    [this](const std::shared_ptr<RtmpConnection>& s,
-                                  const std::string& app,
-                                  const std::string& key,
-                                  std::shared_ptr<MediaStream> ms) {
+                    [this](const std::shared_ptr<RtmpConnection>&,
+                           const std::string&, const std::string& key,
+                           std::shared_ptr<MediaStream> ms) -> bool {
                         {
+                            // 原子占用流名：已有推流者则拒绝（原实现直接覆盖）
                             std::lock_guard<std::mutex> lk(streamsMu_);
+                            auto it = streams_.find(key);
+                            if (it != streams_.end() && it->second->hasPublisher())
+                                return false;
                             streams_[key] = ms;
                         }
                         if (onPublish_) onPublish_(ms);
-                        (void)s;
-                        (void)app;
+                        return true;
                     });
                 rc->setPlayCallback(
                     [this](const std::shared_ptr<RtmpConnection>& c,
@@ -68,7 +70,7 @@ RtmpServer::RtmpServer(EventLoop* loop, uint16_t port, std::string app)
                 rc->setCloseCallback(
                     [this](const std::shared_ptr<RtmpConnection>& c) {
                         if (c->isPublisher() && c->stream()) {
-                            removeStream(c->streamKey());
+                            removeStream(c->streamKey(), c->stream());
                         }
                         // 回收该连接占用的 vhost 配额
                         auto vh = resolveVhost(c->host());
@@ -90,7 +92,7 @@ RtmpServer::RtmpServer(EventLoop* loop, uint16_t port, std::string app)
                 if (c) {
                     conn->setContext(std::any());
                     if (c->isPublisher() && c->stream()) {
-                        removeStream(c->streamKey());
+                        removeStream(c->streamKey(), c->stream());
                     }
                     auto vh = resolveVhost(c->host());
                     if (vh) {
@@ -124,12 +126,14 @@ std::shared_ptr<MediaStream> RtmpServer::findStream(
     return it == streams_.end() ? nullptr : it->second;
 }
 
-void RtmpServer::removeStream(const std::string& key) {
+void RtmpServer::removeStream(const std::string& key,
+                              const std::shared_ptr<MediaStream>& owner) {
     UnpublishHandler cb;
     {
         std::lock_guard<std::mutex> lk(streamsMu_);
         auto it = streams_.find(key);
-        if (it != streams_.end()) {
+        // owner 非空时只移除属于该推流者的流，避免误删同名的新流
+        if (it != streams_.end() && (!owner || it->second == owner)) {
             it->second->setHasPublisher(false);
             streams_.erase(it);
             LOG_INFO("RTMP stream removed: %s", key.c_str());

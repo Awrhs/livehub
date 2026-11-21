@@ -61,7 +61,9 @@ public:
     /// 列出所有流 key（供统计/管理 API）
     std::vector<std::string> listKeys() const;
 
-    void removeStream(const std::string& key);
+    /// 移除流；owner 非空时仅当当前登记的流就是 owner 才移除
+    void removeStream(const std::string& key,
+                      const std::shared_ptr<MediaStream>& owner = nullptr);
     size_t streamCount() const;
 
 private:

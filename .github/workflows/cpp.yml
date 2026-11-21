@@ -77,7 +77,7 @@ jobs:
           cmake --build cpp/build --target streaming_server -j"$(nproc)"
 
       - name: Run E2E
-        timeout-minutes: 8
+        timeout-minutes: 10
         env:
           ASAN_OPTIONS: "detect_leaks=1:abort_on_error=0:halt_on_error=0"
           UBSAN_OPTIONS: "print_stacktrace=1"
@@ -89,5 +89,37 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: e2e-artifacts
+          path: e2e-artifacts
+          retention-days: 7
+
+  e2e-tsan:
+    name: "E2E (ThreadSanitizer)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ ffmpeg netcat-openbsd libssl-dev gdb
+
+      - name: Build (Debug + TSan)
+        run: |
+          cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Debug -DENABLE_TSAN=ON -DENABLE_TESTS=OFF -DENABLE_TOOLS=OFF
+          cmake --build cpp/build --target streaming_server -j"$(nproc)"
+
+      - name: Run E2E under TSan
+        timeout-minutes: 10
+        env:
+          TSAN_OPTIONS: "halt_on_error=0:second_deadlock_stack=1:history_size=4"
+          E2E_ARTIFACT_DIR: ${{ github.workspace }}/e2e-artifacts
+        run: cpp/tests/e2e/e2e_core.sh "$PWD/cpp/build/bin/streaming_server"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-tsan-artifacts
           path: e2e-artifacts
           retention-days: 7

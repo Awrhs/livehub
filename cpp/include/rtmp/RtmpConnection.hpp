@@ -26,8 +26,9 @@ class MediaStream;
 class RtmpConnection : NonCopyable,
                         public std::enable_shared_from_this<RtmpConnection> {
 public:
+    /// 推流回调：返回 false 表示流名已被占用（拒绝本次推流）
     using PublishCallback =
-        std::function<void(const std::shared_ptr<RtmpConnection>&,
+        std::function<bool(const std::shared_ptr<RtmpConnection>&,
                            const std::string& app, const std::string& streamKey,
                            std::shared_ptr<MediaStream>)>;
     using PlayCallback =
@@ -42,6 +43,10 @@ public:
         const std::string& streamKey, bool publish, std::string* reason)>;
 
     RtmpConnection(TcpConnectionPtr conn, std::string app = "live");
+
+    /// 拆分 "stream?token=x&a=b" 为流名与查询串（流名不含查询串）
+    static void splitStreamKey(const std::string& raw, std::string* key,
+                               std::string* query);
     ~RtmpConnection();
 
     void setPublishCallback(PublishCallback cb) { onPublish_ = std::move(cb); }
