@@ -60,6 +60,7 @@ public:
     void unlink(const std::string& path);
 
     uint64_t pendingBytes() const { return pendingBytes_.load(); }
+    uint64_t droppedBytes() const { return droppedBytes_.load(); }
     uint64_t totalWritten() const { return totalWritten_.load(); }
 
 private:
@@ -85,6 +86,7 @@ private:
 
     size_t maxQueueBytes_;
     std::atomic<uint64_t> pendingBytes_{0};
+    std::atomic<uint64_t> droppedBytes_{0};
     std::atomic<uint64_t> totalWritten_{0};
     std::atomic<uint64_t> nextId_{1};
 

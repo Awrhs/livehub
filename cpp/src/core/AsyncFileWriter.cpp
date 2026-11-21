@@ -48,6 +48,14 @@ uint64_t AsyncFileWriter::open(const std::string& path, bool append) {
 
 void AsyncFileWriter::append(uint64_t id, const uint8_t* data, size_t len) {
     if (len == 0) return;
+    // 队列上限：磁盘跟不上时丢弃写入（宁可损坏分片也不能无界占用内存导致 OOM）
+    if (maxQueueBytes_ > 0 && pendingBytes_.load() + len > maxQueueBytes_) {
+        uint64_t n = droppedBytes_.fetch_add(len) + len;
+        if (n == len || (n >> 24) != ((n - len) >> 24))  // 首次及每 16MB 告警一次
+            LOG_WARN("AsyncFileWriter queue full (%zu bytes), dropped %llu bytes so far",
+                     maxQueueBytes_, static_cast<unsigned long long>(n));
+        return;
+    }
     Op op;
     op.type = OpType::kAppend;
     op.id = id;

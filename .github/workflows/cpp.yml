@@ -28,7 +28,7 @@ jobs:
             cc: gcc
             cxx: g++
             deps: "libssl-dev libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev"
-            cmake_flags: "-DCMAKE_BUILD_TYPE=Debug -DENABLE_ASAN=ON"
+            cmake_flags: "-DCMAKE_BUILD_TYPE=Debug -DENABLE_ASAN=ON -DENABLE_WERROR=ON"
           - name: "clang Release"
             cc: clang
             cxx: clang++
@@ -161,3 +161,34 @@ jobs:
           echo "docker stop took $(( $(date +%s) - start ))s, exit code $rc"
           docker logs sms 2>&1 | tail -30
           [ "${frames:-0}" -ge 60 ] && [ "$rc" = 0 ]
+
+  soak:
+    name: "Soak（Release，6 分钟连接反复建立/销毁）"
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ ffmpeg libssl-dev
+
+      - name: Build (Release)
+        run: |
+          cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTS=OFF -DENABLE_TOOLS=OFF
+          cmake --build cpp/build --target streaming_server -j"$(nproc)"
+
+      - name: Soak
+        timeout-minutes: 12
+        env:
+          E2E_ARTIFACT_DIR: ${{ github.workspace }}/soak-artifacts
+        run: cpp/tests/e2e/soak.sh "$PWD/cpp/build/bin/streaming_server" 360
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-artifacts
+          path: soak-artifacts
+          retention-days: 7
