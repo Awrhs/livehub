@@ -40,6 +40,7 @@ void HlsSource::onVideoFrame(const uint8_t* data, size_t len,
                               int64_t pts90k, int64_t dts90k,
                               bool isKeyframe) {
     lastActiveMs_.store(nowMs());
+    std::lock_guard<std::mutex> lk(frameMu_);
 
     // 关键帧且当前分片已达目标时长，滚动分片
     if (isKeyframe) {
@@ -55,6 +56,7 @@ void HlsSource::onVideoFrame(const uint8_t* data, size_t len,
         }
     }
 
+    segmenter_->noteTimestamp(dts90k);
     segmenter_->muxer().writeVideo(data, len, pts90k, dts90k, isKeyframe);
     lastDts_ = dts90k;
 }
@@ -62,7 +64,22 @@ void HlsSource::onVideoFrame(const uint8_t* data, size_t len,
 void HlsSource::onAudioFrame(const uint8_t* data, size_t len,
                               int64_t pts90k) {
     lastActiveMs_.store(nowMs());
+    std::lock_guard<std::mutex> lk(frameMu_);
+    segmenter_->noteTimestamp(pts90k);
     segmenter_->muxer().writeAudio(data, len, pts90k);
+}
+
+void HlsSource::endOfStream() {
+    std::lock_guard<std::mutex> lk(frameMu_);
+    segmenter_->endOfStream();
+}
+
+void HlsSource::resume() {
+    std::lock_guard<std::mutex> lk(frameMu_);
+    segmentStartDts_ = -1;
+    lastDts_ = -1;
+    segmenter_->resume();
+    lastActiveMs_.store(nowMs());
 }
 
 std::string HlsSource::playlist() {

@@ -89,8 +89,8 @@ ffmpeg -hide_banner -loglevel warning -re \
     -f flv "rtmp://127.0.0.1:$RTMP/live/e2ebf?foo=bar" >"$WORK/push_bf.log" 2>&1 &
 PUSH2_PID=$!
 
-# 慢观众：限速 20KB/s 拉 HTTP-FLV（远低于码率），观察流控
-curl -s --limit-rate 20k --max-time 40 "http://127.0.0.1:$HTTP/live/$KEY.flv" -o /dev/null &
+# 慢观众：极小接收缓冲且从不读取，迫使服务端积压，验证流控（丢帧 → 超限断开）
+python3 "$(dirname "$0")/slow_viewer.py" 127.0.0.1 $HTTP "/live/$KEY.flv" 45 >"$WORK/slow.out" 2>&1 &
 SLOW_PID=$!
 sleep 8
 
@@ -214,11 +214,11 @@ sleep 1
 kill -0 "$SERVER_PID" 2>/dev/null && pass "畸形输入后进程存活" || fail "畸形输入导致进程退出"
 
 echo "== 慢观众流控"
-kill "$SLOW_PID" 2>/dev/null; wait "$SLOW_PID" 2>/dev/null
+wait "$SLOW_PID" 2>/dev/null
 if grep -qE 'slow client' "$LOG"; then
     pass "慢观众触发流控: $(grep -m1 -E 'slow client' "$LOG" | cut -c1-160)"
 else
-    echo "  [INFO] 慢观众未触发流控（积压可能被内核 socket 缓冲吸收）"
+    fail "慢观众未触发流控（$(cat "$WORK/slow.out")）"
 fi
 RSS1=$(rss_kb)
 echo "  [INFO] 推拉流期间 RSS: ${RSS1} kB（启动时 ${RSS0} kB）"
@@ -233,6 +233,26 @@ fi
 PUSH_PID=""
 sleep 3
 kill -0 "$SERVER_PID" 2>/dev/null && pass "推流结束后进程存活" || fail "推流结束后进程退出"
+
+echo "== HLS 断流与重推"
+sleep 2
+curl -sf --max-time 5 "$M3U8" >"$WORK/playlist_end.m3u8"
+grep -q '#EXT-X-ENDLIST' "$WORK/playlist_end.m3u8" && pass "断流后 m3u8 含 ENDLIST" \
+    || fail "断流后 m3u8 缺少 ENDLIST: $(tail -3 "$WORK/playlist_end.m3u8" | tr '\n' ' ')"
+ffmpeg -hide_banner -loglevel warning -re \
+    -f lavfi -i "testsrc2=size=640x360:rate=25" -f lavfi -i "sine=frequency=1000:sample_rate=44100" \
+    -c:v libx264 -preset ultrafast -tune zerolatency -g 50 -pix_fmt yuv420p -c:a aac -t 15 \
+    -f flv "rtmp://127.0.0.1:$RTMP/live/$KEY" >"$WORK/push_re.log" 2>&1 &
+PUSH_PID=$!
+sleep 9
+curl -sf --max-time 5 "$M3U8" >"$WORK/playlist_re.m3u8"
+grep -q '#EXT-X-DISCONTINUITY' "$WORK/playlist_re.m3u8" && pass "重推后 m3u8 含 DISCONTINUITY" \
+    || fail "重推后 m3u8 缺少 DISCONTINUITY"
+grep -q '#EXT-X-ENDLIST' "$WORK/playlist_re.m3u8" && fail "重推后 m3u8 仍含 ENDLIST" \
+    || pass "重推后 m3u8 已移除 ENDLIST"
+check_pull hls_re "$M3U8" 2 40
+wait "$PUSH_PID" 2>/dev/null
+PUSH_PID=""
 
 echo "== 优雅退出（SIGTERM）"
 kill -TERM "$SERVER_PID"

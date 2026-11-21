@@ -272,6 +272,7 @@ int main(int argc, char* argv[]) {
                 std::lock_guard<std::mutex> lk(bridgesMu);
                 bridges.erase(key);
             }
+            hlsManager->endStream(key);  // m3u8 追加 ENDLIST
             Metrics::instance().gauge("rtmp_streams")->dec();
             StatsRegistry::instance().remove(key);
             if (webhooks) {

@@ -42,6 +42,7 @@ public:
 
     /// 触发 VOD/EVENT 结束
     void endList() { ended_ = true; }
+    void resume() { ended_ = false; }
 
     uint64_t mediaSequence() const;
     std::string toString() const;

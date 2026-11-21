@@ -18,7 +18,11 @@ std::shared_ptr<HlsSource> HlsManager::getOrCreate(
     const std::string& streamKey) {
     std::lock_guard<std::mutex> lk(mu_);
     auto it = sources_.find(streamKey);
-    if (it != sources_.end()) return it->second;
+    if (it != sources_.end()) {
+        // 同名流断开后重新推流：继续原 HLS 源（DISCONTINUITY + 序号递增）
+        if (it->second->ended()) it->second->resume();
+        return it->second;
+    }
 
     auto src = std::make_shared<HlsSource>(streamKey, outputDir_,
                                             targetDuration_, windowSize_);
@@ -38,6 +42,16 @@ std::shared_ptr<HlsSource> HlsManager::find(const std::string& streamKey) {
     auto it = sources_.find(streamKey);
     if (it == sources_.end()) return nullptr;
     return it->second;
+}
+
+void HlsManager::endStream(const std::string& streamKey) {
+    std::shared_ptr<HlsSource> src;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        auto it = sources_.find(streamKey);
+        if (it != sources_.end()) src = it->second;
+    }
+    if (src) src->endOfStream();
 }
 
 void HlsManager::remove(const std::string& streamKey) {

@@ -41,6 +41,12 @@ public:
     void onAudioFrame(const uint8_t* data, size_t len, int64_t pts90k);
 
     std::string playlist();
+
+    /// 推流结束：封闭最后分片并追加 ENDLIST
+    void endOfStream();
+    /// 同名流重新推流：继续该 HLS 源（插入 DISCONTINUITY）
+    void resume();
+    bool ended() const { return segmenter_->ended(); }
     std::string segmentPath(uint64_t seq) const;
 
     const std::string& key() const { return streamKey_; }
@@ -55,6 +61,7 @@ private:
     std::unique_ptr<Segmenter> segmenter_;
     class AsyncFileWriter* asyncWriter_ = nullptr;
     int targetDuration_;
+    std::mutex frameMu_;  // 帧写入 / 结束 / 恢复 串行化
     int64_t segmentStartDts_ = -1;
     int64_t lastDts_ = -1;
     std::atomic<int64_t> lastActiveMs_{0};

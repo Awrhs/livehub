@@ -22,8 +22,8 @@ class FlowControl {
 public:
     enum Action { kSend, kDrop, kClose };
 
-    static constexpr size_t kDefaultSoftLimit = 4 * 1024 * 1024;
-    static constexpr size_t kDefaultHardLimit = 32 * 1024 * 1024;
+    static constexpr size_t kDefaultSoftLimit = 2 * 1024 * 1024;
+    static constexpr size_t kDefaultHardLimit = 16 * 1024 * 1024;
 
     explicit FlowControl(size_t softLimit = kDefaultSoftLimit,
                          size_t hardLimit = kDefaultHardLimit)
