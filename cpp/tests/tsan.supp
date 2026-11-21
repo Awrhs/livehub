@@ -1,0 +1,4 @@
+# ThreadSanitizer 抑制规则：仅限未插桩的第三方库内部
+# libsrt：GC 线程析构 CUDTSocket 与 srt_close 解锁同一 mutex 的内部竞争
+race:libsrt.so
+mutex:libsrt.so
