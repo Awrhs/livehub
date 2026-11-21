@@ -35,6 +35,16 @@ void Channel::remove() {
 }
 
 void Channel::handleEvent(Timestamp receiveTime) {
+    if (tied_) {
+        std::shared_ptr<void> guard = tie_.lock();
+        if (!guard) return;  // owner 已销毁
+        handleEventWithGuard(receiveTime);
+    } else {
+        handleEventWithGuard(receiveTime);
+    }
+}
+
+void Channel::handleEventWithGuard(Timestamp receiveTime) {
     // EPOLLHUP: 对端关闭（写端或全关闭）
     if ((revents_ & EPOLLHUP) && !(revents_ & EPOLLIN)) {
         if (closeCallback_) closeCallback_();

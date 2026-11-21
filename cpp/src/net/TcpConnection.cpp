@@ -39,8 +39,10 @@ TcpConnection::~TcpConnection() {
 }
 
 void TcpConnection::connectEstablished() {
-    loop_->runInLoop([this] {
+    auto self = shared_from_this();
+    loop_->runInLoop([this, self] {
         setState(kConnected);
+        channel_.tie(self);
         channel_.enableReading();
         if (connectionCallback_) {
             connectionCallback_(shared_from_this());
@@ -49,7 +51,8 @@ void TcpConnection::connectEstablished() {
 }
 
 void TcpConnection::connectDestroyed() {
-    loop_->runInLoop([this] {
+    auto self = shared_from_this();
+    loop_->runInLoop([this, self] {
         if (state_ == kConnected) {
             setState(kDisconnected);
             channel_.disableAll();
@@ -68,8 +71,9 @@ void TcpConnection::send(const std::string& message) {
         } else {
             // 跨线程：拷贝一份加入 loop 队列
             std::string msg = message;  // 显式拷贝
+            auto self = shared_from_this();
             loop_->runInLoop(
-                [this, msg] { sendInLoop(msg.data(), msg.size()); });
+                [self, msg] { self->sendInLoop(msg.data(), msg.size()); });
         }
     }
 }
@@ -81,8 +85,9 @@ void TcpConnection::send(Buffer* buf) {
             buf->retrieveAll();
         } else {
             std::string data = buf->retrieveAllAsString();
+            auto self = shared_from_this();
             loop_->runInLoop(
-                [this, data] { sendInLoop(data.data(), data.size()); });
+                [self, data] { self->sendInLoop(data.data(), data.size()); });
         }
     }
 }
@@ -103,8 +108,9 @@ void TcpConnection::sendInLoop(const void* data, size_t len) {
         if (nwrote >= 0) {
             remaining = len - static_cast<size_t>(nwrote);
             if (remaining == 0 && writeCompleteCallback_) {
+                auto self = shared_from_this();
                 loop_->queueInLoop(
-                    [this] { writeCompleteCallback_(shared_from_this()); });
+                    [self] { self->writeCompleteCallback_(self); });
             }
         } else {
             nwrote = 0;
@@ -127,9 +133,10 @@ void TcpConnection::sendInLoop(const void* data, size_t len) {
         // 输出缓冲越过高水位，触发反压回调
         if (oldLen + remaining >= highWaterMark_ &&
             oldLen < highWaterMark_ && highWaterMarkCallback_) {
+            auto self = shared_from_this();
             loop_->queueInLoop(
-                [this, total = oldLen + remaining] {
-                    highWaterMarkCallback_(shared_from_this(), total);
+                [self, total = oldLen + remaining] {
+                    self->highWaterMarkCallback_(self, total);
                 });
         }
     }
@@ -151,7 +158,8 @@ bool TcpConnection::tcpInfo(TcpConnection::TcpInfo* info) const {
 void TcpConnection::shutdown() {
     if (state_ == kConnected) {
         setState(kDisconnecting);
-        loop_->runInLoop([this] { shutdownInLoop(); });
+        auto self = shared_from_this();
+        loop_->runInLoop([self] { self->shutdownInLoop(); });
     }
 }
 
@@ -165,7 +173,8 @@ void TcpConnection::shutdownInLoop() {
 void TcpConnection::forceClose() {
     if (state_ == kConnected || state_ == kDisconnecting) {
         setState(kDisconnecting);
-        loop_->queueInLoop([this] { forceCloseInLoop(); });
+        auto self = shared_from_this();
+        loop_->queueInLoop([self] { self->forceCloseInLoop(); });
     }
 }
 
@@ -206,8 +215,9 @@ void TcpConnection::handleWrite() {
         if (outputBuffer_.readableBytes() == 0) {
             channel_.disableWriting();
             if (writeCompleteCallback_) {
+                auto self = shared_from_this();
                 loop_->queueInLoop(
-                    [this] { writeCompleteCallback_(shared_from_this()); });
+                    [self] { self->writeCompleteCallback_(self); });
             }
             if (state_ == kDisconnecting) {
                 shutdownInLoop();

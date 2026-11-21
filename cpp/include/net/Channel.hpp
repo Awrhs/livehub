@@ -4,6 +4,7 @@
 #include "core/Timestamp.hpp"
 
 #include <functional>
+#include <memory>
 
 namespace streaming {
 
@@ -69,10 +70,20 @@ public:
     /// 处理就绪事件（epoll_wait 返回后调用）
     void handleEvent(Timestamp receiveTime);
 
+    /// 绑定所有者生命周期（muduo tie）：处理事件期间持有 owner，
+    /// 防止回调中途 owner（如 TcpConnection）被析构。
+    void tie(const std::shared_ptr<void>& owner) {
+        tie_ = owner;
+        tied_ = true;
+    }
+
     /// 注册/更新到 poller
     void update();
 
 private:
+    void handleEventWithGuard(Timestamp receiveTime);
+    std::weak_ptr<void> tie_;
+    bool tied_ = false;
     EventLoop* loop_;
     int fd_;
     int events_;   // 关心的事件

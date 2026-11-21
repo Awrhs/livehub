@@ -2,6 +2,7 @@
 #include "api/Json.hpp"
 #include "core/Logger.hpp"
 
+#include <algorithm>
 #include <cctype>
 
 #include <fcntl.h>
@@ -86,9 +87,11 @@ void HttpServer::handleRequest(const std::shared_ptr<TcpConnection>& conn,
     // 中间件链：任一返回 false 表示已处理/拦截，直接发送响应
     for (const auto& mw : middlewares_) {
         if (!mw(conn, req, resp)) {
-            Buffer* out = conn->outputBuffer();
-            resp.appendToBuffer(out);
-            conn->send(out);
+            // 注意：必须序列化到局部 Buffer。若传入 conn->outputBuffer()，
+            // sendInLoop 会把数据追加回自身再被 retrieveAll 清空，响应丢失。
+            Buffer out;
+            resp.appendToBuffer(&out);
+            conn->send(&out);
             finishLog();
             if (resp.closeConnection()) conn->shutdown();
             return;
@@ -98,35 +101,37 @@ void HttpServer::handleRequest(const std::shared_ptr<TcpConnection>& conn,
     // 默认 JSON 头
     bool routed = router_.dispatch(req, resp);
 
-    // 序列化头部到 output buffer
-    Buffer* out = conn->outputBuffer();
-    resp.appendToBuffer(out);
+    // 序列化头部到局部 Buffer（见上方注释，不能用 conn->outputBuffer()）
+    Buffer out;
+    resp.appendToBuffer(&out);
 
-    // 先把头部发出去
-    conn->send(out);
-
-    // 若有文件 body，用 sendfile 零拷贝
-    if (routed && resp.hasFileBody()) {
+    // 文件 body：pread 读入后随头部一起交给连接的输出缓冲。
+    // 原实现在 Reactor 线程里对非阻塞 socket 做 sendfile 忙等（EAGAIN 自旋），
+    // 慢客户端会卡死整个事件循环，且可能与排队中的头部乱序。
+    // TODO(perf): 在 TcpConnection 中实现带 EPOLLOUT 续传的 sendfile 零拷贝。
+    if (resp.hasFileBody()) {
         int fd = resp.fileFd();
-        size_t toSend = resp.isRange()
-                            ? (resp.rangeEnd() - resp.rangeStart() + 1)
-                            : resp.fileSize();
-        off_t offset = resp.isRange()
-                           ? static_cast<off_t>(resp.rangeStart())
-                           : 0;
-        size_t sent = 0;
-        while (sent < toSend) {
-            ssize_t n = ::sendfile(conn->fd(), fd, &offset, toSend - sent);
-            if (n <= 0) {
-                if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-                    continue;
-                }
-                break;
+        if (routed) {
+            size_t toSend = resp.isRange()
+                                ? (resp.rangeEnd() - resp.rangeStart() + 1)
+                                : resp.fileSize();
+            off_t offset = resp.isRange()
+                               ? static_cast<off_t>(resp.rangeStart())
+                               : 0;
+            char chunk[64 * 1024];
+            size_t sent = 0;
+            while (sent < toSend) {
+                size_t want = std::min(sizeof(chunk), toSend - sent);
+                ssize_t n = ::pread(fd, chunk, want, offset);
+                if (n <= 0) break;
+                out.append(chunk, static_cast<size_t>(n));
+                offset += n;
+                sent += static_cast<size_t>(n);
             }
-            sent += static_cast<size_t>(n);
         }
         ::close(fd);
     }
+    conn->send(&out);
 
     // 流式响应：把连接交给处理器持续推送（HTTP-FLV 等）
     if (routed && resp.isStreaming() && resp.streamCallback()) {
