@@ -65,6 +65,11 @@ public:
 
     void close();
 
+    /// 播放：发送 metadata，回放 GOP 并订阅实时包
+    void startPlayback(const std::shared_ptr<MediaStream>& ms);
+    /// 播放请求的流不存在
+    void rejectPlay(const std::string& code, const std::string& desc);
+
 private:
     void onHandshakeDone();
     void onCompleteMessage(RtmpMessage&& msg);

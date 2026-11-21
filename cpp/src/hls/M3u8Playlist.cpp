@@ -55,7 +55,13 @@ std::string M3u8Playlist::toString() const {
     } else if (type_ == PlaylistType::kEvent) {
         os << "#EXT-X-PLAYLIST-TYPE:EVENT\n";
     }
-    os << "#EXT-X-TARGETDURATION:" << targetDuration_ << "\n";
+    // RFC 8216 4.3.3.1：TARGETDURATION 必须 >= 每个分片 EXTINF 四舍五入后的整数
+    int target = targetDuration_;
+    for (const auto& seg : segments_) {
+        int d = static_cast<int>(seg.duration + 0.5);
+        if (d > target) target = d;
+    }
+    os << "#EXT-X-TARGETDURATION:" << target << "\n";
     os << "#EXT-X-MEDIA-SEQUENCE:" << mediaSequence() << "\n";
 
     for (const auto& seg : segments_) {

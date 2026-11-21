@@ -49,23 +49,13 @@ struct WsFlvSession : public std::enable_shared_from_this<WsFlvSession> {
             sendAsBinary(script);
         }
 
-        Buffer gop;
-        s->playGop(
-            [&gop](const MediaPacket& pkt) { FlvMuxer::writeMediaTag(gop, pkt); });
-        if (gop.readableBytes() > 0) sendAsBinary(gop);
-
-        sess->subId = s->subscribe(
+        // 原子地回放 GOP 并订阅实时包（每个 tag 一个 binary 帧）
+        sess->subId = s->subscribeWithGop(
             [w = sess->weak_from_this()](const MediaPacket& pkt) {
                 auto self = w.lock();
-                if (!self) return;
+                if (!self) return;  // 会话已析构（析构函数会注销订阅）
                 auto c2 = self->conn.lock();
-                if (!c2 || !c2->connected()) {
-                    if (self->stream && self->subId != 0) {
-                        self->stream->unsubscribe(self->subId);
-                        self->subId = 0;
-                    }
-                    return;
-                }
+                if (!c2 || !c2->connected()) return;
                 Buffer out;
                 FlvMuxer::writeMediaTag(out, pkt);
                 std::vector<uint8_t> frame = WebSocket::buildFrame(
@@ -76,6 +66,11 @@ struct WsFlvSession : public std::enable_shared_from_this<WsFlvSession> {
                                      frame.size()));
             });
         return sess;
+    }
+
+    ~WsFlvSession() {
+        // 会话随连接释放：从流的订阅列表移除，避免遗留失效回调
+        if (stream && subId != 0) stream->unsubscribe(subId);
     }
 
 private:

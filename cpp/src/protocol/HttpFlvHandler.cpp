@@ -9,6 +9,7 @@
 #include "protocol/FlvMuxer.hpp"
 #include "rtmp/MediaStream.hpp"
 
+#include <atomic>
 #include <cstring>
 #include <memory>
 
@@ -16,63 +17,52 @@ namespace streaming {
 
 namespace {
 
-// 一次 FLV 订阅会话：自持有，断开时自行注销。
-struct FlvSession : public std::enable_shared_from_this<FlvSession> {
+// 一次 FLV 订阅会话。
+// 生命周期：订阅回调强持有 session；session 只弱引用 stream 与连接，
+// 因此流被移除（回调列表释放）或连接断开（下一个包时主动注销）都会释放 session，
+// 不会形成 stream→callback→session→stream 的引用环。
+// （原实现回调只捕获 weak_ptr 且无任何强引用，session 在 start() 返回后立即析构，
+//  导致 HTTP-FLV 只发出响应头、永远没有媒体数据。）
+struct FlvSession {
     std::weak_ptr<TcpConnection> conn;
-    std::shared_ptr<MediaStream> stream;
+    std::weak_ptr<MediaStream> stream;
     MediaStream::SubscriberId subId = 0;
+    std::atomic<bool> done{false};
 
-    static std::shared_ptr<FlvSession> start(
-        const std::shared_ptr<TcpConnection>& c,
-        const std::shared_ptr<MediaStream>& s) {
-        auto sess = std::shared_ptr<FlvSession>(new FlvSession());
+    static void start(const std::shared_ptr<TcpConnection>& c,
+                      const std::shared_ptr<MediaStream>& s) {
+        auto sess = std::make_shared<FlvSession>();
         sess->conn = c;
         sess->stream = s;
 
-        // 1. 发送 FLV header
+        // 1. FLV header + onMetaData
         Buffer hdr;
-        FlvMuxer::writeHeader(hdr,
-                              !s->audioSequenceHeader().empty(),
+        FlvMuxer::writeHeader(hdr, !s->audioSequenceHeader().empty(),
                               !s->videoSequenceHeader().empty());
-        // 2. onMetaData script tag
         auto meta = s->metadata();
-        if (!meta.empty()) {
-            FlvMuxer::writeScriptTag(hdr, meta);
-        }
+        if (!meta.empty()) FlvMuxer::writeScriptTag(hdr, meta);
         c->send(&hdr);
 
-        // 3. 推 GOP（sequence header + 最近关键帧起）
-        Buffer gop;
-        s->playGop([&gop](const MediaPacket& pkt) {
-            FlvMuxer::writeMediaTag(gop, pkt);
+        // 2. 原子地回放 GOP 并订阅实时包
+        sess->subId = s->subscribeWithGop([sess](const MediaPacket& pkt) {
+            if (sess->done.load()) return;
+            auto c2 = sess->conn.lock();
+            if (!c2 || !c2->connected()) {
+                sess->finish();
+                return;
+            }
+            Buffer out;
+            FlvMuxer::writeMediaTag(out, pkt);
+            c2->send(&out);
         });
-        if (gop.readableBytes() > 0) {
-            c->send(&gop);
-        }
-
-        // 4. 订阅实时包
-        sess->subId = s->subscribe(
-            [w = sess->weak_from_this()](const MediaPacket& pkt) {
-                auto self = w.lock();
-                if (!self) return;
-                auto c2 = self->conn.lock();
-                if (!c2 || !c2->connected()) {
-                    // 连接已断开，注销订阅
-                    if (self->stream && self->subId != 0) {
-                        self->stream->unsubscribe(self->subId);
-                        self->subId = 0;
-                    }
-                    return;
-                }
-                Buffer out;
-                FlvMuxer::writeMediaTag(out, pkt);
-                c2->send(&out);
-            });
-        return sess;
     }
 
-private:
-    FlvSession() = default;
+    void finish() {
+        if (done.exchange(true)) return;
+        if (auto st = stream.lock()) {
+            if (subId != 0) st->unsubscribe(subId);  // 释放回调 → 释放 session
+        }
+    }
 };
 
 bool isSafeName(const std::string& s) {

@@ -48,7 +48,9 @@ void HttpResponse::appendToBuffer(Buffer* output) const {
     }
 
     // 字符串 body 需要设 Content-Length（文件 body 已在 setFileBody 设过）
-    if (!body_.empty() && headers_.find("Content-Length") == headers_.end()) {
+    if (headers_.find("Content-Length") == headers_.end() && !isStreaming() &&
+        !hasFileBody()) {
+        // 空 body 也必须显式写 0，否则 keep-alive 客户端会一直等待 body
         output->append("Content-Length: ");
         output->append(std::to_string(body_.size()));
         output->append("\r\n");

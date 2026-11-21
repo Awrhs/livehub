@@ -468,9 +468,54 @@ void RtmpConnection::sendMessage(const RtmpMessage& msg) {
     c->send(&out);
 }
 
+void RtmpConnection::startPlayback(const std::shared_ptr<MediaStream>& ms) {
+    if (!ms || closed_) return;
+    stream_ = ms;
+
+    // onMetaData（data message, type 18）
+    auto meta = ms->metadata();
+    if (!meta.empty()) {
+        Buffer pb;
+        Amf0Value::str("onMetaData").encode(pb);
+        Amf0Value::ecmaArray(meta).encode(pb);
+        RtmpMessage m;
+        m.typeId = kMsgDataAmf0;
+        m.chunkStreamId = 5;
+        m.streamId = kDefaultStreamId;
+        m.timestamp = 0;
+        m.payload.assign(pb.peek(), pb.peek() + pb.readableBytes());
+        sendMessage(m);
+    }
+
+    // 订阅回调可能运行在发布者线程：只捕获 weak 引用，
+    // ChunkWriter::write 无状态，TcpConnection::send 跨线程安全。
+    std::weak_ptr<RtmpConnection> weak = shared_from_this();
+    subscriberId_ = ms->subscribeWithGop([weak](const MediaPacket& pkt) {
+        auto self = weak.lock();
+        if (!self || self->closed_) return;
+        RtmpMessage m;
+        m.typeId = static_cast<uint8_t>(pkt.type);
+        m.chunkStreamId = pkt.type == MediaPacket::kAudio ? 4 : 6;
+        m.streamId = kDefaultStreamId;
+        m.timestamp = pkt.timestamp;
+        m.payload = pkt.data;
+        self->sendMessage(m);
+    });
+}
+
+void RtmpConnection::rejectPlay(const std::string& code,
+                                const std::string& desc) {
+    onStatus(kDefaultStreamId, "error", code, desc);
+    close();
+}
+
 void RtmpConnection::close() {
     if (closed_) return;  // 幂等
     closed_ = true;
+    if (stream_ && subscriberId_ != 0) {
+        stream_->unsubscribe(subscriberId_);
+        subscriberId_ = 0;
+    }
     auto self = shared_from_this();  // 回调可能释放外部引用，先保活
     auto c = conn_.lock();
     if (c) c->forceClose();

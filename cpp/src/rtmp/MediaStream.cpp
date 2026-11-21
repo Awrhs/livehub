@@ -8,23 +8,31 @@ MediaStream::MediaStream(std::string streamKey, std::string app)
     : streamKey_(std::move(streamKey)), app_(std::move(app)) {}
 
 void MediaStream::onPacket(MediaPacket pkt) {
-    // 关键帧：重置 GOP 缓存（从 IDR 起）
-    if (pkt.type == MediaPacket::kVideo) {
-        if (pkt.isKeyframe) {
-            std::lock_guard<std::mutex> lk(mu_);
-            gop_.clear();
-            gop_.push_back(pkt);
-        } else {
-            std::lock_guard<std::mutex> lk(mu_);
-            gop_.push_back(pkt);
-            while (gop_.size() > gopMaxPackets_) gop_.pop_front();
-        }
-    } else if (pkt.type == MediaPacket::kAudio) {
+    std::lock_guard<std::mutex> dlk(dispatchMu_);
+    {
         std::lock_guard<std::mutex> lk(mu_);
-        gop_.push_back(pkt);
+        if (pkt.isSequenceHeader) {
+            // seq header 由 set*SequenceHeader 单独保存、回放时最先发送，不进 GOP
+        } else if (pkt.type == MediaPacket::kVideo) {
+            if (pkt.isKeyframe) {
+                gop_.clear();
+                gopHasKeyframe_ = true;
+                gop_.push_back(pkt);
+            } else if (gopHasKeyframe_) {
+                gop_.push_back(pkt);
+            }
+        } else if (pkt.type == MediaPacket::kAudio) {
+            // 仅在已有关键帧时缓存音频（纯音频流不缓存，避免无界增长）
+            if (gopHasKeyframe_) gop_.push_back(pkt);
+        }
+        if (gop_.size() > gopMaxPackets_) {
+            // GOP 过长（关键帧间隔异常）：整体丢弃，不能只删头部（会删掉 IDR）
+            gop_.clear();
+            gopHasKeyframe_ = false;
+        }
     }
 
-    // 通知订阅者（拷贝回调列表，避免持锁回调）
+    // 通知订阅者（拷贝回调列表，回调中可安全 unsubscribe）
     std::vector<PacketCallback> cbs;
     {
         std::lock_guard<std::mutex> lk(subMu_);
@@ -34,6 +42,12 @@ void MediaStream::onPacket(MediaPacket pkt) {
     for (auto& cb : cbs) {
         if (cb) cb(pkt);
     }
+}
+
+MediaStream::SubscriberId MediaStream::subscribeWithGop(PacketCallback cb) {
+    std::lock_guard<std::mutex> dlk(dispatchMu_);
+    playGop(cb);
+    return subscribe(std::move(cb));
 }
 
 MediaStream::SubscriberId MediaStream::subscribe(PacketCallback cb) {

@@ -109,10 +109,13 @@ void Segmenter::closeCurrentSegment(int64_t endPts) {
     if (segmentStartPts_ >= 0 && endPts > segmentStartPts_) {
         double duration =
             static_cast<double>(endPts - segmentStartPts_) / 90000.0;
+        // 分片 URI 相对 /live/<stream>.m3u8 解析，须带流名目录：<stream>/<seq>.ts
+        // （分片路由为 /live/:stream/:segment；原来只写 <seq>.ts 会解析成 /live/<seq>.ts → 404）
         char name[32];
         std::snprintf(name, sizeof(name), "%llu.ts",
                       static_cast<unsigned long long>(sequence_));
-        playlist_.addSegment(sequence_, duration, name, segmentStartWallUs_);
+        playlist_.addSegment(sequence_, duration, streamName_ + "/" + name,
+                             segmentStartWallUs_);
         if (onSegmentComplete_) {
             onSegmentComplete_(sequence_, segmentPath(sequence_));
         }

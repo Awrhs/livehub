@@ -85,6 +85,11 @@ public:
 
     /// 订阅实时包；返回 id，可用于取消
     SubscriberId subscribe(PacketCallback cb);
+
+    /// 原子地“回放 sequence header + GOP 缓存，然后订阅实时包”。
+    /// 回放与注册在同一把分发锁下完成，保证新观众收到的包不丢、不重、不乱序。
+    /// 回调可能在发布者线程中被调用，必须轻量且线程安全（例如只做 conn->send）。
+    SubscriberId subscribeWithGop(PacketCallback cb);
     void unsubscribe(SubscriberId id);
 
     /// 把 GOP 缓存（sequence header + 最近关键帧起的包）推给回调
@@ -111,8 +116,13 @@ private:
     Amf0Value::Object metadata_;
     std::vector<uint8_t> videoSeqHeader_;
     std::vector<uint8_t> audioSeqHeader_;
-    std::deque<MediaPacket> gop_;
-    size_t gopMaxPackets_ = 2048;
+    std::deque<MediaPacket> gop_;     // 从最近 IDR 起的音视频包（不含 seq header）
+    bool gopHasKeyframe_ = false;
+    size_t gopMaxPackets_ = 4096;    // 超过即整体丢弃，等待下一个关键帧
+
+    // 分发锁：onPacket 的“更新 GOP + 通知订阅者”与 subscribeWithGop 互斥，
+    // 保证新订阅者的 GOP 回放与实时包严格衔接。
+    mutable std::mutex dispatchMu_;
 
     mutable std::mutex subMu_;
     std::vector<std::pair<SubscriberId, PacketCallback>> subscribers_;

@@ -47,6 +47,14 @@ RtmpServer::RtmpServer(EventLoop* loop, uint16_t port, std::string app)
                 rc->setPlayCallback(
                     [this](const std::shared_ptr<RtmpConnection>& c,
                            const std::string& app, const std::string& key) {
+                        // 原实现只回 Play.Start 而从不下发媒体数据
+                        auto ms = findStream(key);
+                        if (!ms) {
+                            c->rejectPlay("NetStream.Play.StreamNotFound",
+                                          "stream not found: " + key);
+                            return;
+                        }
+                        c->startPlayback(ms);
                         if (onPlay_) onPlay_(c, app, key);
                     });
                 rc->setAuthCallback(
