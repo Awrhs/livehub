@@ -12,6 +12,7 @@ add_executable(unit_tests
     test_handshake.cpp
     test_flow_control.cpp
     test_ts_demuxer.cpp
+    test_stun.cpp
     test_http_parser.cpp
     test_router.cpp
     test_jwt.cpp

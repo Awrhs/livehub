@@ -291,9 +291,11 @@ bool Stun::checkIntegrity(const uint8_t* data, size_t len,
     }
     if (miOff == 0) return false;
 
-    // 校验用的长度 = (miOff - 20) - 4(MI头) + 24(整条MI) = miOff
+    // RFC 5389 15.4：HMAC 输入为 MESSAGE-INTEGRITY 属性“之前”的全部字节（不含 MI 的 4 字节头），
+    // 头部长度字段改写为“截至 MI 末尾”：MI 末尾偏移为 miOff + 20，故长度 = miOff
+    // （原实现把 MI 属性头也纳入 HMAC，与所有标准实现都无法互通）
     uint16_t effLen = static_cast<uint16_t>(miOff);
-    std::vector<uint8_t> copy(data, data + miOff);
+    std::vector<uint8_t> copy(data, data + miOff - 4);
     copy[2] = effLen >> 8;
     copy[3] = effLen & 0xFF;
 
