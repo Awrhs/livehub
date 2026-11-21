@@ -16,9 +16,6 @@ uint32_t randomSsrc() {
     return rng();
 }
 
-bool isSps(const uint8_t* n) { return (*n & 0x1F) == 7; }
-bool isPps(const uint8_t* n) { return (*n & 0x1F) == 8; }
-bool isIdr(const uint8_t* n) { return (*n & 0x1F) == 5; }
 }  // namespace
 
 WebRtcIngest::WebRtcIngest(EventLoop* loop, uint16_t udpPort, std::string ufrag,
@@ -85,9 +82,9 @@ void WebRtcIngest::onIceData(const uint8_t* data, size_t len,
     if (len > sizeof(buf)) return;
     std::memcpy(buf, data, len);
 
-    // 区分 RTCP（PT 64+）与 RTP：RTP PT 通常 < 64，RTCP 在 200..206
-    bool isRtcp = (len >= 2) && (buf[1] & 0x7F) >= 64 &&
-                  (buf[1] & 0x7F) <= 223;
+    // RFC 5761 4：第二个字节（完整字节）在 192..223 为 RTCP，其余为 RTP。
+    // （原实现先 &0x7F 再判断 >=64，WebRTC 常用的动态 PT 96..127 全被误判为 RTCP 而丢弃）
+    bool isRtcp = (len >= 2) && buf[1] >= 192 && buf[1] <= 223;
     int out;
     if (isRtcp) {
         out = srtpRecv_->unprotectRtcp(buf, static_cast<int>(len));
