@@ -34,4 +34,8 @@ struct SdpAnswerResult {
 
 SdpAnswerResult buildSdpAnswer(const std::string& offer, const SdpAnswerParams& p);
 
+/// 提取 offer 中指定算法的 DTLS 指纹（"sha-256 AB:CD:..."）；
+/// 对端可能同时给出 sha-256/384/512 多行，必须按算法选取。找不到返回空串。
+std::string sdpFingerprint(const std::string& offer, const std::string& algo = "sha-256");
+
 }  // namespace streaming

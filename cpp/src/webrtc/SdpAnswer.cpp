@@ -78,6 +78,20 @@ int pickH264(const OfferSection& s) {
 
 }  // namespace
 
+std::string sdpFingerprint(const std::string& offer, const std::string& algo) {
+    std::istringstream is(offer);
+    std::string line;
+    const std::string prefix = "a=fingerprint:";
+    while (std::getline(is, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.compare(0, prefix.size(), prefix) != 0) continue;
+        std::string v = line.substr(prefix.size());
+        auto sp = v.find(' ');
+        if (sp != std::string::npos && lower(v.substr(0, sp)) == lower(algo)) return v;
+    }
+    return "";
+}
+
 SdpAnswerResult buildSdpAnswer(const std::string& offer, const SdpAnswerParams& p) {
     SdpAnswerResult r;
     auto sections = parseOffer(offer);

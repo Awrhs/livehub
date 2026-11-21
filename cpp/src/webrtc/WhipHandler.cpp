@@ -34,11 +34,8 @@ void WhipHandler::registerRoutes(HttpServer& server) {
                     if (!stream) return fail(HttpStatusCode::k409Conflict, "stream busy or not allowed");
                     auto ingest = webrtc_->createIngest(key, stream);
                     if (!ingest) return fail(HttpStatusCode::k503ServiceUnavailable, "no ports");
-
-                    SdpMessage offer;
-                    offer.parse(req.body());
-                    if (!offer.medias.empty())
-                        ingest->setRemoteFingerprint(offer.medias[0].fingerprintHash);
+                    // 对端 DTLS 证书指纹（按 sha-256 选取；offer 可能同时含多种算法）
+                    ingest->setRemoteFingerprint(sdpFingerprint(req.body(), "sha-256"));
 
                     SdpAnswerParams p;
                     p.sendVideo = false;

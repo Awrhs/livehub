@@ -41,10 +41,8 @@ void WhepHandler::registerRoutes(HttpServer& server) {
 
                     auto transport = webrtc_->createSubscriber(key, stream);
                     if (!transport) return fail(HttpStatusCode::k503ServiceUnavailable, "no ports");
-                    SdpMessage offer;
-                    offer.parse(req.body());
-                    if (!offer.medias.empty())
-                        transport->setRemoteFingerprint(offer.medias[0].fingerprintHash);
+                    // 对端 DTLS 证书指纹（按 sha-256 选取；offer 可能同时含多种算法）
+                    transport->setRemoteFingerprint(sdpFingerprint(req.body(), "sha-256"));
 
                     p.port = transport->port();
                     p.ufrag = transport->ufrag();
