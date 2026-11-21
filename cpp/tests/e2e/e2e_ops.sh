@@ -89,19 +89,23 @@ push denyme 4 && fail "webhook 返回 code=1 时推流未被拒绝" || pass "web
 grep -E 'denied|denyme' "$LOG" | head -2 | sed 's/^/    /'
 
 echo "== 慢 webhook 不阻塞 IO 线程（单 IO 线程，回调延迟 4s）"
-push ok2 25 &
+push ok2 30 &
 OK2=$!
 sleep 4
+first_frame_ms() {  # 拉流到首个解码帧的耗时（关闭探测等待）
+    local t0; t0=$(date +%s%N)
+    timeout 15 ffmpeg -hide_banner -loglevel error -analyzeduration 0 -probesize 32768 \
+        -i "rtmp://127.0.0.1:$RTMP/live/ok2" -frames:v 1 -f null - >/dev/null 2>&1 || { echo 99999; return; }
+    echo $(( ($(date +%s%N) - t0) / 1000000 ))
+}
+base=$(first_frame_ms)
 push slowme 6 &
 SLOW=$!
 sleep 0.5
-t0=$(date +%s%N)
-timeout 15 ffprobe -v error -show_entries stream=codec_name -of csv=p=0 \
-    "rtmp://127.0.0.1:$RTMP/live/ok2" >"$WORK/ok2.probe" 2>&1
-dt=$(( ($(date +%s%N) - t0) / 1000000 ))
-grep -q h264 "$WORK/ok2.probe" && [ "$dt" -lt 2500 ] \
-    && pass "慢 webhook 等待期间同线程其它连接正常（拉流探测 ${dt}ms）" \
-    || fail "慢 webhook 阻塞了 IO 线程（拉流探测 ${dt}ms，$(cat "$WORK/ok2.probe" | head -1)）"
+during=$(first_frame_ms)
+[ "$during" -lt $((base + 1500)) ] \
+    && pass "慢 webhook 等待期间同线程其它连接正常（首帧 ${during}ms，基线 ${base}ms）" \
+    || fail "慢 webhook 阻塞了 IO 线程（首帧 ${during}ms，基线 ${base}ms）"
 wait "$SLOW" && pass "慢 webhook 放行后推流成功" || fail "慢 webhook 放行后推流失败"
 kill "$OK2" 2>/dev/null; wait "$OK2" 2>/dev/null
 
