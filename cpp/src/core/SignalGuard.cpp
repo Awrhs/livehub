@@ -3,6 +3,7 @@
 #include "core/Logger.hpp"
 #include "net/EventLoop.hpp"
 
+#include <signal.h>
 #include <sys/signalfd.h>
 #include <unistd.h>
 
