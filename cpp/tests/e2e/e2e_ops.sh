@@ -155,6 +155,20 @@ except BlockingIOError:
 ' $RTMP)
 [ "$ok" = open ] && pass "连接释放后计数回收，可正常建立新连接" || fail "连接释放后计数未回收（$ok）"
 
+echo "== SIGHUP 热加载 vhost"
+sleep 61  # 等待 API 限流窗口重置（每分钟 20 次）
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 -H "Host: reloaded.local" "http://127.0.0.1:$HTTP/live/x.m3u8")
+[ "$code" = 404 ] && pass "热加载前 reloaded.local 走默认 vhost（404）" || fail "热加载前返回 $code"
+cat >>"$WORK/streaming.conf" <<EOF2
+[vhost:reloaded.local]
+enable_auth=true
+EOF2
+kill -HUP "$SERVER_PID"
+sleep 1
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 -H "Host: reloaded.local" "http://127.0.0.1:$HTTP/live/x.m3u8")
+[ "$code" = 403 ] && pass "SIGHUP 后新 vhost 生效（需鉴权，403）" || fail "SIGHUP 后返回 $code（期望 403）"
+grep -q 'config reloaded' "$LOG" && pass "日志记录热加载完成" || fail "日志未记录热加载"
+
 kill -0 "$SERVER_PID" 2>/dev/null && pass "进程存活" || fail "进程已退出"
 echo "运维 E2E 失败项: $FAILS"
 exit "$FAILS"

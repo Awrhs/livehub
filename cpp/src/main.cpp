@@ -1164,16 +1164,8 @@ int main(int argc, char* argv[]) {
         if (signo == SIGHUP) {
             if (reloading.exchange(true)) return;
             LOG_INFO("SIGHUP received, reloading config/vhosts...");
-            // 重新加载配置文件（不中断在途连接）
-            if (!configFile.empty()) Config::instance().loadFromFile(configFile);
-            // Redis 端点热更新（worker 下次重连读新配置）
-            if (!Config::instance().redisHost().empty()) {
-                RedisClient::instance().configure(
-                    Config::instance().redisHost(),
-                    Config::instance().redisPort(),
-                    Config::instance().redisTimeoutMs(),
-                    Config::instance().redisPassword());
-            }
+            // 仅重载 vhost 段（不中断在途连接）；顶层设置需重启生效
+            if (!configFile.empty()) Config::instance().reloadVhosts(configFile);
             // 重建整个 vhost 表（[vhost:*] 段）
             vhostManager->reload(Config::instance().vhosts());
             // 用默认 vhost 的回调配置刷新全局 WebhookManager（默认租户）

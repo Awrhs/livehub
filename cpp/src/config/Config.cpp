@@ -45,16 +45,19 @@ bool Config::load(const std::string& file) {
     return true;
 }
 
-void Config::loadFromFile(const std::string& path) {
+void Config::reloadVhosts(const std::string& path) { loadFromFile(path, true); }
+
+void Config::loadFromFile(const std::string& path, bool vhostsOnly) {
     std::ifstream f(path);
     if (!f) {
         LOG_WARN("config file %s not readable, using env/defaults", path.c_str());
         return;
     }
 
-    // 清空旧的 vhost 配置（顶层标量在 applyKv 中直接覆盖，无需重置）
-    vhosts_.clear();
+    // vhost 先解析到局部表，最后在锁内整体替换（读者通过 vhosts() 加锁拿快照）
+    std::unordered_map<std::string, VhostPtr> newVhosts;
     VhostPtr currentVhost;
+    int ignoredScalars = 0;
 
     std::string line;
     while (std::getline(f, line)) {
@@ -75,7 +78,7 @@ void Config::loadFromFile(const std::string& path) {
                     auto vh = std::make_shared<Vhost>();
                     vh->name = name;
                     currentVhost = vh;
-                    vhosts_[name] = vh;
+                    newVhosts[name] = vh;
                 }
             }
             continue;
@@ -92,10 +95,19 @@ void Config::loadFromFile(const std::string& path) {
         }
         if (currentVhost) {
             applyVhostKv(currentVhost, key, val);
+        } else if (vhostsOnly) {
+            ++ignoredScalars;
         } else {
             applyKv(key, val);
         }
     }
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        vhosts_.swap(newVhosts);
+    }
+    if (vhostsOnly && ignoredScalars > 0)
+        LOG_INFO("config reload: %d top-level settings ignored (restart required)",
+                 ignoredScalars);
 }
 
 std::unordered_map<std::string, VhostPtr> Config::vhosts() const {
