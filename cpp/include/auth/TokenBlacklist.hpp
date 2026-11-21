@@ -45,7 +45,7 @@ private:
         int64_t expireAtSec;
     };
     mutable std::mutex mu_;
-    std::unordered_map<std::string, Entry> entries_;
+    mutable std::unordered_map<std::string, Entry> entries_;  // contains() 会回灌 Redis 命中
 };
 
 }  // namespace streaming

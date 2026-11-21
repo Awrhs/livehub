@@ -2,6 +2,8 @@
 
 #include "core/NonCopyable.hpp"
 
+#include <sys/mman.h>
+
 #include <cstddef>
 #include <memory>
 #include <string>
