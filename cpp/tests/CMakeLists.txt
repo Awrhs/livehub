@@ -9,6 +9,7 @@ add_executable(unit_tests
     test_pes.cpp
     test_amf.cpp
     test_chunk.cpp
+    test_handshake.cpp
     test_http_parser.cpp
     test_router.cpp
     test_jwt.cpp

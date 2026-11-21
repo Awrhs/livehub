@@ -48,20 +48,18 @@ RtmpConnection::~RtmpConnection() {
 void RtmpConnection::onRead(Buffer* buf) {
     if (!handshakeDone_) {
         Buffer out;
-        if (handshake_.onRead(*buf, out)) {
-            auto c = conn_.lock();
-            if (c && out.readableBytes() > 0) {
-                c->send(&out);
-            }
-            onHandshakeDone();
-        } else {
-            // 半包：保留缓冲，等待更多数据
-            auto c = conn_.lock();
-            if (c && out.readableBytes() > 0) {
-                c->send(&out);
-            }
+        bool done = handshake_.onRead(*buf, out);
+        auto c = conn_.lock();
+        if (c && out.readableBytes() > 0) c->send(&out);
+        if (handshake_.failed()) {
+            buf->retrieveAll();
+            if (c) c->forceClose();
             return;
         }
+        // 注意：收到 C0C1 只是发出 S0S1S2，必须等 C2 到达才算握手完成；
+        // 原实现在 C0C1 后即进入 chunk 解析，把 C2 当作 chunk 导致所有连接失败。
+        if (!done) return;  // 半包或等待 C2
+        onHandshakeDone();
     }
 
     // 握手完成后持续解析 chunk
