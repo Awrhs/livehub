@@ -43,6 +43,7 @@ public:
 
     void setThreadNum(int n) { server_.setThreadNum(n); }
     void setIdleTimeout(int seconds) { server_.setIdleTimeout(seconds); }
+    void stop() { server_.stop(); }
     void setPublishHandler(PublishHandler h) { onPublish_ = std::move(h); }
     void setPlayHandler(PlayHandler h) { onPlay_ = std::move(h); }
     void setUnpublishHandler(UnpublishHandler h) { onUnpublish_ = std::move(h); }

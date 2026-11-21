@@ -67,6 +67,21 @@ void TcpConnection::connectEstablished() {
     });
 }
 
+void TcpConnection::shutdownInOwnLoop() {
+    loop_->assertInLoopThread();
+    if (idleTimer_) {
+        loop_->cancel(idleTimer_);
+        idleTimer_ = TimerId();
+    }
+    auto self = shared_from_this();
+    if (state_ == kConnected || state_ == kDisconnecting) {
+        setState(kDisconnected);
+        channel_.disableAll();
+        if (connectionCallback_) connectionCallback_(self);
+    }
+    channel_.remove();
+}
+
 void TcpConnection::connectDestroyed() {
     auto self = shared_from_this();
     loop_->runInLoop([this, self] {

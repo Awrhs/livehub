@@ -91,6 +91,9 @@ public:
     void connectEstablished();
     /// 内部使用：连接销毁前调用
     void connectDestroyed();
+    /// 服务关闭时在所属 IO 线程内同步关闭并销毁（仅供 TcpServer::stop 使用）：
+    /// 通知上层断开（connectionCallback），注销 Channel，取消定时器
+    void shutdownInOwnLoop();
 
     Buffer* inputBuffer() { return &inputBuffer_; }
     Buffer* outputBuffer() { return &outputBuffer_; }

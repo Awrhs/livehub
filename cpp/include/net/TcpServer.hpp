@@ -59,6 +59,9 @@ public:
     void setIdleTimeout(int seconds) { idleTimeout_ = seconds; }
 
     void start();
+    /// 有序关闭（须在 baseLoop 线程、baseLoop 已停止后调用）：
+    /// 强制关闭全部连接，退出并 join 所有 IO 线程。之后不再有任何连接回调。
+    void stop();
 
     EventLoop* getLoop() const { return loop_; }
     EventLoopThreadPool* threadPool() const { return threadPool_.get(); }
@@ -76,6 +79,7 @@ private:
     const std::string name_;
     std::unique_ptr<Acceptor> acceptor_;
     std::unique_ptr<EventLoopThreadPool> threadPool_;
+    std::atomic<bool> stopped_{false};
     std::atomic<int> started_;
     int nextConnId_;
     int idleTimeout_ = 0;  // 秒，0=不超时

@@ -36,6 +36,7 @@ public:
 
     /// 推流结束：m3u8 追加 ENDLIST；源保留到 sweep 超时后清理（届时删除分片文件）
     void endStream(const std::string& streamKey);
+    std::vector<std::string> keys() const;
 
     /// 周期回收过期流（无活跃超过 timeoutSec 秒），在 EventLoop 定时器中调用
     void sweep(int64_t nowMs, int timeoutSec);

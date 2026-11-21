@@ -12,7 +12,9 @@ EventLoopThreadPool::EventLoopThreadPool(EventLoop* baseLoop, std::string name)
       numThreads_(0),
       next_(0) {}
 
-EventLoopThreadPool::~EventLoopThreadPool() {
+EventLoopThreadPool::~EventLoopThreadPool() { stop(); }
+
+void EventLoopThreadPool::stop() {
     for (auto& t : threads_) {
         if (t && t->thread && t->thread->joinable()) {
             if (t->loop) t->loop->quit();

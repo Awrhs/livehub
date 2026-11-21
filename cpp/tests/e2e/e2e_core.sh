@@ -327,7 +327,16 @@ check_pull hls_re "$M3U8" 2 40
 wait "$PUSH_PID" 2>/dev/null
 PUSH_PID=""
 
-echo "== 优雅退出（SIGTERM）"
+echo "== 优雅退出（SIGTERM，存在活跃推流与观众）"
+ffmpeg -hide_banner -loglevel quiet -re -f lavfi -i "testsrc2=size=320x240:rate=25" \
+    -f lavfi -i "sine=frequency=1000:sample_rate=44100" -c:v libx264 -preset ultrafast -g 50 \
+    -pix_fmt yuv420p -c:a aac -t 30 -f flv "rtmp://127.0.0.1:$RTMP/live/$KEY" >/dev/null 2>&1 &
+LIVE_PUSH=$!
+sleep 4
+curl -s --max-time 20 "http://127.0.0.1:$HTTP/live/$KEY.flv" -o /dev/null &
+timeout 20 ffmpeg -hide_banner -loglevel quiet -i "rtmp://127.0.0.1:$RTMP/live/$KEY" -f null - >/dev/null 2>&1 &
+python3 "$(dirname "$0")/ws_flv_client.py" 127.0.0.1 $HTTP "/live/$KEY.flv" 15 >/dev/null 2>&1 &
+sleep 3
 kill -TERM "$SERVER_PID"
 for _ in $(seq 1 50); do kill -0 "$SERVER_PID" 2>/dev/null || break; sleep 0.2; done
 if kill -0 "$SERVER_PID" 2>/dev/null; then
@@ -336,6 +345,7 @@ else
     wait "$SERVER_PID"; rc=$?
     SERVER_PID=""
     [ "$rc" -eq 0 ] && pass "SIGTERM 正常退出 (rc=0)" || fail "SIGTERM 退出码 $rc"
+    kill "$LIVE_PUSH" 2>/dev/null
 fi
 
 if grep -qE 'ERROR: AddressSanitizer|runtime error:|LeakSanitizer|WARNING: ThreadSanitizer' "$LOG"; then

@@ -1,4 +1,7 @@
 #include "net/TcpServer.hpp"
+#include <vector>
+#include <map>
+#include <future>
 #include "net/EventLoop.hpp"
 #include "net/EventLoopThreadPool.hpp"
 #include "core/Logger.hpp"
@@ -26,6 +29,35 @@ TcpServer::TcpServer(EventLoop* loop, uint16_t port,
             this->newConnection(fd, addr);
         });
     (void)option;
+}
+
+void TcpServer::stop() {
+    if (stopped_.exchange(true)) return;
+    // 阶段一：在每个连接所属的 IO 线程内关闭并销毁连接（IO 线程的 EventLoop 是线程栈对象，
+    // 线程退出后即失效，不能在线程外操作其 Channel），并等待全部完成。
+    // 完成后所有连接均为断开态，send() 不再向任何 loop 投递任务。
+    std::map<EventLoop*, std::vector<std::shared_ptr<TcpConnection>>> byLoop;
+    for (auto& item : connections_) {
+        if (item.second) byLoop[item.second->getLoop()].push_back(item.second);
+    }
+    std::vector<std::future<void>> done;
+    for (auto& [loop, conns] : byLoop) {
+        if (loop->isInLoopThread()) {
+            // 连接就在当前（已停止的 base）loop 上：直接执行，避免等待自身造成死锁
+            for (const auto& c : conns) c->shutdownInOwnLoop();
+            continue;
+        }
+        auto p = std::make_shared<std::promise<void>>();
+        done.push_back(p->get_future());
+        loop->queueInLoop([conns, p] {
+            for (const auto& c : conns) c->shutdownInOwnLoop();
+            p->set_value();
+        });
+    }
+    for (auto& f : done) f.wait();
+    connections_.clear();
+    // 阶段二：退出并 join 所有 IO 线程
+    threadPool_->stop();
 }
 
 TcpServer::~TcpServer() {

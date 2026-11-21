@@ -1122,10 +1122,7 @@ int main(int argc, char* argv[]) {
             return;
         }
         LOG_INFO("shutting down...");
-        transcodeManager->stop();
-        healthChecker->stop();
-        webhooks->stop();
-        asyncWriter->stop();
+        // 其余资源在 baseLoop 退出后按序关闭（见 main 末尾）
         // SignalGuard 在终止类信号回调返回后会调用 baseLoop.quit()
     });
 
@@ -1139,6 +1136,19 @@ int main(int argc, char* argv[]) {
              "srt=:19535 webrtc-udp=50000-50999",
              cfg.httpPort(), cfg.rtmpPort());
     baseLoop.loop();
+
+    // ---- 有序关闭 ----
+    // 必须先关闭所有连接并 join IO 线程，再析构其它对象：
+    // 否则 IO 线程上的回调会访问已析构的局部对象（带活跃连接退出时必崩）。
+    LOG_INFO("closing connections and stopping IO threads...");
+    httpServer.stop();
+    rtmpServer->stop();
+    rtspServer->stop();
+    for (const auto& key : hlsManager->keys()) hlsManager->endStream(key);
+    transcodeManager->stop();
+    healthChecker->stop();
+    webhooks->stop();
+    asyncWriter->stop();  // 等待已排队的分片写盘完成
 
     LOG_INFO("streaming_server stopped");
     return 0;

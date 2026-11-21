@@ -32,6 +32,8 @@ public:
 
     /// 启动所有 subLoop 线程
     void start(const ThreadInitCallback& cb = ThreadInitCallback());
+    /// 退出所有 IO 线程并 join（幂等）。已投递的任务会在退出前执行完。
+    void stop();
 
     /// round-robin 获取下一个 subLoop（无 pool 时返回 baseLoop）
     EventLoop* getNextLoop();

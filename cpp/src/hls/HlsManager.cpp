@@ -76,6 +76,13 @@ void HlsManager::sweep(int64_t nowMs, int timeoutSec) {
     }
 }
 
+std::vector<std::string> HlsManager::keys() const {
+    std::lock_guard<std::mutex> lk(mu_);
+    std::vector<std::string> out;
+    for (const auto& kv : sources_) out.push_back(kv.first);
+    return out;
+}
+
 size_t HlsManager::size() const {
     std::lock_guard<std::mutex> lk(mu_);
     return sources_.size();

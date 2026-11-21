@@ -27,6 +27,7 @@ public:
     void setStreamResolver(StreamResolver r) { resolver_ = std::move(r); }
     void setThreadNum(int n) { server_.setThreadNum(n); }
     void start();
+    void stop() { server_.stop(); }
 
     uint16_t port() const { return port_; }
 
