@@ -30,7 +30,8 @@ void RtmpToHls::start() {
                                            targetDuration_, windowSize_);
         hls_->start();
     }
-    subId_ = stream_->subscribe(
+    // 原子回放已有 seq header/GOP 后订阅（桥接晚于首包创建时也不会缺配置）
+    subId_ = stream_->subscribeWithGop(
         [this](const MediaPacket& p) { onPacket(p); });
     LOG_INFO("RtmpToHls bridge started for stream=%s", stream_->key().c_str());
 }
@@ -73,31 +74,31 @@ void RtmpToHls::onVideo(const MediaPacket& pkt) {
                 std::vector<uint8_t> vps, sps, pps;
                 if (HevcParser::extractConfig(vi.payload, vi.payloadLen, vps,
                                              sps, pps)) {
+                    // 仅保存；在每个关键帧前内联（见下）
                     vps_ = std::move(vps);
                     sps_ = std::move(sps);
                     pps_ = std::move(pps);
                     hasVideoConfig_ = true;
-                    int64_t t90 = static_cast<int64_t>(pkt.timestamp) * 90;
-                    if (!vps_.empty())
-                        hls_->onVideoFrame(vps_.data(), vps_.size(), t90, t90,
-                                           false);
-                    if (!sps_.empty())
-                        hls_->onVideoFrame(sps_.data(), sps_.size(), t90, t90,
-                                           false);
-                    if (!pps_.empty())
-                        hls_->onVideoFrame(pps_.data(), pps_.size(), t90, t90,
-                                           false);
                 }
                 return;
             }
             if (vi.packetType != 1 && vi.packetType != 2) return;
             if (vi.payloadLen == 0) return;
-            std::vector<uint8_t> annexb =
+            std::vector<uint8_t> nalus =
                 HevcParser::hvccToAnnexB(vi.payload, vi.payloadLen, 3);
-            if (annexb.empty()) return;
+            if (nalus.empty()) return;
+            // AUD(type 35) + [VPS/SPS/PPS 于关键帧] + 帧数据
+            static const uint8_t kHevcAud[] = {0, 0, 0, 1, 0x46, 0x01, 0x50};
+            std::vector<uint8_t> au(kHevcAud, kHevcAud + sizeof(kHevcAud));
+            if (pkt.isKeyframe) {
+                au.insert(au.end(), vps_.begin(), vps_.end());
+                au.insert(au.end(), sps_.begin(), sps_.end());
+                au.insert(au.end(), pps_.begin(), pps_.end());
+            }
+            au.insert(au.end(), nalus.begin(), nalus.end());
             int64_t dts90k = static_cast<int64_t>(pkt.timestamp) * 90;
             int64_t pts90k = dts90k + static_cast<int64_t>(vi.cts) * 90;
-            hls_->onVideoFrame(annexb.data(), annexb.size(), pts90k, dts90k,
+            hls_->onVideoFrame(au.data(), au.size(), pts90k, dts90k,
                                pkt.isKeyframe);
         }
         // av01/vp09 暂不在 TS 中支持，忽略
@@ -111,23 +112,15 @@ void RtmpToHls::onVideo(const MediaPacket& pkt) {
     if (hls_) hls_->setVideoStreamType(kStreamTypeVideo);
 
     if (avcType == 0) {
+        // AVCDecoderConfigurationRecord 从 RTMP 负载第 5 字节开始
+        // （原实现传入整个负载，numSps 读错位置，SPS/PPS 从未提取成功）
         std::vector<uint8_t> sps, pps;
-        if (AvcParser::extractSpsPps(d, len, sps, pps)) {
+        if (len > 5 && AvcParser::extractSpsPps(d + 5, len - 5, sps, pps)) {
             sps_ = std::move(sps);
             pps_ = std::move(pps);
             hasVideoConfig_ = true;
-            if (!sps_.empty()) {
-                hls_->onVideoFrame(sps_.data(), sps_.size(),
-                                   pkt.timestamp * 90LL, pkt.timestamp * 90LL,
-                                   true);
-            }
-            if (!pps_.empty()) {
-                hls_->onVideoFrame(pps_.data(), pps_.size(),
-                                   pkt.timestamp * 90LL, pkt.timestamp * 90LL,
-                                   false);
-            }
         }
-        return;
+        return;  // 仅保存；在每个 IDR 前内联（TS 没有带外 extradata）
     }
     if (avcType == 2) return;  // end of sequence
 
@@ -137,13 +130,21 @@ void RtmpToHls::onVideo(const MediaPacket& pkt) {
         static_cast<uint32_t>(d[4]));
     if (cts & 0x00800000) cts |= ~0x00FFFFFF;
 
-    std::vector<uint8_t> annexb = AvcParser::avccToAnnexB(d + 5, len - 5);
-    if (annexb.empty()) return;
+    std::vector<uint8_t> nalus = AvcParser::avccToAnnexB(d + 5, len - 5);
+    if (nalus.empty()) return;
+
+    // AUD(type 9) + [SPS + PPS 于关键帧] + 帧数据（Apple HLS 规范建议每个 AU 带 AUD）
+    static const uint8_t kAvcAud[] = {0, 0, 0, 1, 0x09, 0xF0};
+    std::vector<uint8_t> au(kAvcAud, kAvcAud + sizeof(kAvcAud));
+    if (pkt.isKeyframe) {
+        au.insert(au.end(), sps_.begin(), sps_.end());
+        au.insert(au.end(), pps_.begin(), pps_.end());
+    }
+    au.insert(au.end(), nalus.begin(), nalus.end());
 
     int64_t dts90k = static_cast<int64_t>(pkt.timestamp) * 90;
     int64_t pts90k = dts90k + static_cast<int64_t>(cts) * 90;
-    hls_->onVideoFrame(annexb.data(), annexb.size(), pts90k, dts90k,
-                       pkt.isKeyframe);
+    hls_->onVideoFrame(au.data(), au.size(), pts90k, dts90k, pkt.isKeyframe);
 }
 
 void RtmpToHls::onAudio(const MediaPacket& pkt) {
@@ -160,9 +161,10 @@ void RtmpToHls::onAudio(const MediaPacket& pkt) {
     }
     if (!hasAudioConfig_) return;
 
-    // AACPacketType==1：byte0 是音频头，byte1 起为 raw AAC frame
+    // FLV AAC: byte0 = 音频头(SoundFormat 等)，byte1 = AACPacketType(1)，byte2 起为 raw
+    // （原实现从 byte1 开始，把 AACPacketType 当作 AAC 数据，导致解码大量报错）
     std::vector<uint8_t> adts =
-        AacParser::wrapWithAdts(aacCfg_, d + 1, len - 1);
+        AacParser::wrapWithAdts(aacCfg_, d + 2, len - 2);
     hls_->onAudioFrame(adts.data(), adts.size(),
                        static_cast<int64_t>(pkt.timestamp) * 90);
 }

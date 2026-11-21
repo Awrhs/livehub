@@ -237,7 +237,7 @@ int main(int argc, char* argv[]) {
                     if (pkt.type == MediaPacket::kVideo) {
                         st->onVideoPacket(pkt.data.size());
                         // 从 sequence header 解析分辨率
-                        if (pkt.data.size() > 5) {
+                        if (pkt.isSequenceHeader && pkt.data.size() > 5) {
                             std::vector<uint8_t> sps, pps;
                             if (AvcParser::extractSpsPps(
                                     pkt.data.data() + 5,
