@@ -113,8 +113,16 @@ std::vector<uint8_t> Stun::buildBindingResponse(
     const std::string& password, bool addFingerprint) {
 
     std::vector<uint8_t> msg;
-    // 占位头部 20 字节
     msg.assign(20, 0);
+    // 头部必须先写好：MESSAGE-INTEGRITY 与 FINGERPRINT 的计算覆盖头部
+    //（原实现在最后才写入类型/magic/事务 ID，签名与校验和均基于全 0 头部计算，对端必然拒绝）
+    msg[0] = 0x01;
+    msg[1] = 0x01;  // Binding Success
+    msg[4] = 0x21;
+    msg[5] = 0x12;
+    msg[6] = 0xA4;
+    msg[7] = 0x42;
+    std::memcpy(msg.data() + 8, req.txId, 12);
 
     appendXorMappedAddress(msg, req.txId, addrIpv4HostOrder, portHostOrder);
 
@@ -177,14 +185,6 @@ std::vector<uint8_t> Stun::buildBindingResponse(
         msg[3] = len & 0xFF;
     }
 
-    // 头部
-    msg[0] = 0x01;
-    msg[1] = 0x01;  // Binding Success
-    msg[4] = 0x21;
-    msg[5] = 0x12;
-    msg[6] = 0xA4;
-    msg[7] = 0x42;
-    std::memcpy(msg.data() + 8, req.txId, 12);
     return msg;
 }
 

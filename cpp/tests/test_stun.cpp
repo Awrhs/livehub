@@ -23,3 +23,18 @@ TEST(stun_rfc5769_sample_request_integrity) {
     ASSERT_FALSE(Stun::checkIntegrity(req, sizeof(req), "wrong-password"));
 }
 #endif
+
+#ifdef HAVE_OPENSSL
+// 生成的 Binding Response 必须能被同一密码校验通过，且头部（类型/magic/事务 ID）正确
+TEST(stun_binding_response_integrity_roundtrip) {
+    StunMessage req;
+    for (int i = 0; i < 12; ++i) req.txId[i] = static_cast<uint8_t>(i + 1);
+    auto resp = Stun::buildBindingResponse(req, 0x7F000001, 50000, "server-pwd-123");
+    ASSERT_TRUE(resp.size() > 20);
+    ASSERT_EQ(resp[0], uint8_t(0x01));
+    ASSERT_EQ(resp[1], uint8_t(0x01));
+    ASSERT_EQ(resp[4], uint8_t(0x21));
+    ASSERT_EQ(resp[8], uint8_t(1));
+    ASSERT_TRUE(Stun::checkIntegrity(resp.data(), resp.size(), "server-pwd-123"));
+}
+#endif
