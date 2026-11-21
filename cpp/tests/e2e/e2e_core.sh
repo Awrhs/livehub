@@ -89,10 +89,11 @@ ffmpeg -hide_banner -loglevel warning -re \
     -f flv "rtmp://127.0.0.1:$RTMP/live/e2ebf?foo=bar" >"$WORK/push_bf.log" 2>&1 &
 PUSH2_PID=$!
 
-# 慢观众：极小接收缓冲且从不读取，迫使服务端积压，验证流控（丢帧 → 超限断开）
-python3 "$(dirname "$0")/slow_viewer.py" 127.0.0.1 $HTTP "/live/$KEY.flv" 45 >"$WORK/slow.out" 2>&1 &
-SLOW_PID=$!
 sleep 8
+
+# 慢观众（流就绪后启动）：极小接收缓冲且从不读取，迫使服务端积压，验证流控
+python3 "$(dirname "$0")/slow_viewer.py" 127.0.0.1 $HTTP "/live/$KEY.flv" 40 >"$WORK/slow.out" 2>&1 &
+SLOW_PID=$!
 
 if kill -0 "$PUSH_PID" 2>/dev/null; then
     pass "推流进程运行中"

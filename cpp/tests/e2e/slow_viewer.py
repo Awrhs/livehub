@@ -11,6 +11,15 @@ s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)  # 必须在 connect 前设置
 s.connect((host, port))
 s.sendall(f"GET {path} HTTP/1.1\r\nHost: {host}\r\n\r\n".encode())
+time.sleep(1)
+s.setblocking(False)
+try:
+    head = s.recv(12, socket.MSG_PEEK)
+except BlockingIOError:
+    head = b""
+if not head.startswith(b"HTTP/1.1 200"):
+    print("bad_response:" + head.decode(errors="replace"))
+    sys.exit(0)
 deadline = time.time() + secs
 closed_by_server = False
 while time.time() < deadline:
