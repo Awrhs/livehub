@@ -117,6 +117,21 @@ else
     echo "  [INFO] ffmpeg 未编译 SRT 支持，跳过"
 fi
 
+echo "== WebRTC WHIP 推流（ffmpeg -f whip）"
+if ffmpeg -hide_banner -muxers 2>/dev/null | grep -qw whip; then
+    timeout 45 ffmpeg -hide_banner -loglevel info -re -f lavfi -i "testsrc2=size=640x360:rate=25" \
+        -f lavfi -i "sine=frequency=500:sample_rate=48000" \
+        -c:v libx264 -profile:v baseline -preset ultrafast -tune zerolatency -g 50 -bf 0 -pix_fmt yuv420p \
+        -c:a libopus -ar 48000 -ac 2 -t 30 \
+        -f whip "http://127.0.0.1:$HTTP/whip/whipin" >"$WORK/push_whip.log" 2>&1 &
+    sleep 10
+    grep -iE 'error|fail|refused|timeout' "$WORK/push_whip.log" | head -5 | sed 's/^/    whip: /'
+    probe whip_flv "http://127.0.0.1:$HTTP/live/whipin.flv" h264 3 40
+    probe whip_hls "http://127.0.0.1:$HTTP/live/whipin.m3u8" h264 3 40
+else
+    echo "  [INFO] ffmpeg 不支持 whip muxer，跳过"
+fi
+
 kill -0 "$SERVER_PID" 2>/dev/null && pass "进程存活" || fail "进程已退出"
 echo
 echo "== 服务器日志（WARN/ERROR 摘要）"
