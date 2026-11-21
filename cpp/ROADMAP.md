@@ -29,7 +29,9 @@
 | RTSP 拉流（TCP） | ✅ | 扩展 E2E |
 | DVR 录制为 fMP4（可播放、从关键帧开始、音视频同基准） | ✅ | 扩展 E2E |
 | SRT（libsrt）：推流 → FLV/HLS、RTMP 推流 → SRT 拉流、鉴权、拒绝抢占 | ✅ | 扩展 E2E |
-| 限流 / webhook / WebRTC / 转码 / 集群 | ⚠️ 编译通过，未经验证 | — |
+| webhook（on_publish/on_play/on_unpublish 通知、code≠0 拒绝、慢回调不阻塞 IO 线程） | ✅ | 运维 E2E |
+| 限流（API 429、不误伤播放）、连接数上限（全局/单 IP） | ✅ | 运维 E2E |
+| WebRTC / 转码 / 集群 | ⚠️ 编译通过，未经验证 | — |
 
 ### 第一轮已修复的致命问题（节选）
 
@@ -65,7 +67,7 @@
 
 - [x] 鉴权重做并端到端验证：此前 `/api/token` 无需鉴权（任何人可领 token）、HTTP 播放不鉴权、
       源码内置 JWT 密钥。现管理员签发绑定 stream/scope/ttl 的 token，RTMP/HTTP-FLV/HLS/WS-FLV 统一校验
-- [ ] 连接数上限（全局 / 单 IP）
+- [x] 连接数上限（全局 / 单 IP）：MAX_CONNECTIONS / MAX_CONNECTIONS_PER_IP
 - [x] RTMP Acknowledgement（窗口确认）发送，兼容严格客户端
 - [ ] 时间戳跳变/回退处理（分片 discontinuity、FLV 时间戳单调化）
 - [ ] HLS 响应头（`Cache-Control`、CORS）、m3u8 与分片的 MIME 类型
@@ -88,7 +90,8 @@
 ### P1 —— 其它已知问题
 
 - [ ] SIGHUP 热加载：Config 顶层标量在其它线程读取时被直接改写（数据竞争）
-- [ ] webhook 同步鉴权在 IO 线程中阻塞执行 HTTP 请求（超时期间该 IO 线程上的所有连接停滞）
+- [x] webhook：RTMP 推/拉流鉴权异步化；修复同步等待超时后访问已销毁栈对象（UAF）；worker 扩至 4 个
+- [ ] webhook：HTTP-FLV / WS-FLV / SRT 拉流的 on_play 仍为同步调用（需 HttpServer 支持延迟响应）
 - [ ] AsyncFileWriter 队列满时丢弃写入会损坏 HLS 分片，可改为丢弃整个分片
 - [ ] clang `-Wunused-private-field` 告警清理
 
