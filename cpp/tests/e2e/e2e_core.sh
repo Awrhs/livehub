@@ -76,12 +76,12 @@ rss_kb() { awk '/VmRSS/{print $2}' "/proc/$SERVER_PID/status" 2>/dev/null; }
 RSS0=$(rss_kb)
 echo "  [INFO] 启动后 RSS: ${RSS0} kB"
 
-echo "== 推流（H.264 + AAC，60s）"
+echo "== 推流（H.264 + AAC，100s）"
 ffmpeg -hide_banner -loglevel warning -re \
     -f lavfi -i "testsrc2=size=640x360:rate=25" \
     -f lavfi -i "sine=frequency=1000:sample_rate=44100" \
     -c:v libx264 -preset ultrafast -tune zerolatency -g 50 -pix_fmt yuv420p \
-    -c:a aac -b:a 64k -t 60 \
+    -c:a aac -b:a 64k -t 100 \
     -f flv "rtmp://127.0.0.1:$RTMP/live/$KEY" >"$WORK/push.log" 2>&1 &
 PUSH_PID=$!
 
@@ -90,7 +90,7 @@ ffmpeg -hide_banner -loglevel warning -re \
     -f lavfi -i "testsrc2=size=320x240:rate=30" \
     -f lavfi -i "sine=frequency=440:sample_rate=48000" -ac 2 \
     -c:v libx264 -preset veryfast -bf 2 -g 60 -pix_fmt yuv420p \
-    -c:a aac -b:a 96k -t 60 \
+    -c:a aac -b:a 96k -t 100 \
     -f flv "rtmp://127.0.0.1:$RTMP/live/e2ebf?foo=bar" >"$WORK/push_bf.log" 2>&1 &
 PUSH2_PID=$!
 
@@ -286,7 +286,7 @@ RSS1=$(rss_kb)
 echo "  [INFO] 推拉流期间 RSS: ${RSS1} kB（启动时 ${RSS0} kB）"
 
 echo "== 推流结束后的清理"
-for _ in $(seq 1 60); do kill -0 "$PUSH_PID" 2>/dev/null || break; sleep 1; done
+for _ in $(seq 1 100); do kill -0 "$PUSH_PID" 2>/dev/null || break; sleep 1; done
 wait "$PUSH2_PID" 2>/dev/null
 if kill -0 "$PUSH_PID" 2>/dev/null; then
     fail "推流 ffmpeg 未按时结束（服务端可能停止读取/背压卡死）"
