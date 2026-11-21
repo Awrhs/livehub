@@ -51,7 +51,7 @@ jobs:
         run: cmake -S cpp -B cpp/build ${{ matrix.cmake_flags }} -DENABLE_BENCHMARKS=ON
 
       - name: Build
-        run: cmake --build cpp/build -j"$(nproc)"
+        run: cmake --build cpp/build -j"$(nproc)" -- -k  # -k: 遇错继续，一次暴露全部编译错误
 
       - name: Run unit tests
         run: ctest --test-dir cpp/build --output-on-failure

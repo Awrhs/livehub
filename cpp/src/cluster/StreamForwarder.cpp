@@ -258,10 +258,12 @@ struct StreamForwarder::Target
                 props.decode(pb);
                 Amf0Value info;
                 if (info.decode(pb) && info.isObject()) {
-                    if (const auto* desc = info.asObject()->find("description"))
+                    const auto* obj = info.asObject();
+                    auto desc = obj->find("description");
+                    if (desc != obj->end())
                         LOG_INFO("forward[%lu] %s: %s",
                                  static_cast<unsigned long>(id), cmd.c_str(),
-                                 desc->asString().c_str());
+                                 desc->second.asString().c_str());
                 }
                 if (state == State::kConnectSent) {
                     sendCreateStream();
