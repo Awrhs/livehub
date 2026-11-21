@@ -63,6 +63,9 @@
 #include "webrtc/WhipHandler.hpp"
 #include "webrtc/WebRtcManager.hpp"
 
+#include <execinfo.h>
+#include <unistd.h>
+
 #include <atomic>
 #include <csignal>
 #include <cstdio>
@@ -94,8 +97,28 @@ std::vector<Profile> parseProfileSpec(const std::string& spec) {
 
 }  // namespace
 
+namespace {
+// 致命信号时打印调用栈（生产环境崩溃排查；需链接 -rdynamic 以获得符号名）
+void crashHandler(int sig) {
+    char head[64];
+    int n = std::snprintf(head, sizeof(head), "\n*** FATAL signal %d, backtrace:\n", sig);
+    if (n > 0) (void)!::write(STDERR_FILENO, head, static_cast<size_t>(n));
+    void* frames[64];
+    int depth = ::backtrace(frames, 64);
+    ::backtrace_symbols_fd(frames, depth, STDERR_FILENO);
+    ::signal(sig, SIG_DFL);
+    ::raise(sig);
+}
+void installCrashHandler() {
+    for (int s : {SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGABRT}) ::signal(s, crashHandler);
+}
+}  // namespace
+
 int main(int argc, char* argv[]) {
     ::signal(SIGPIPE, SIG_IGN);
+#if !defined(__SANITIZE_ADDRESS__) && !defined(__SANITIZE_THREAD__)
+    installCrashHandler();  // sanitizer 构建由 sanitizer 自己报告
+#endif
     // 在创建任何线程之前屏蔽终止/重载信号，由 SignalGuard 的 signalfd 统一处理
     SignalGuard::blockProcessSignals();
 

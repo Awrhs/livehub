@@ -74,7 +74,7 @@ echo "== H.264 推流（供 RTSP / DVR 使用）"
 ffmpeg -hide_banner -loglevel warning -re -f lavfi -i "testsrc2=size=640x360:rate=25" \
     -f lavfi -i "sine=frequency=900:sample_rate=44100" \
     -c:v libx264 -preset ultrafast -tune zerolatency -g 50 -pix_fmt yuv420p \
-    -c:a aac -t 40 -f flv "rtmp://127.0.0.1:$RTMP/live/avc" >"$WORK/push_avc.log" 2>&1 &
+    -c:a aac -t 120 -f flv "rtmp://127.0.0.1:$RTMP/live/avc" >"$WORK/push_avc.log" 2>&1 &
 sleep 6
 
 echo "== RTSP 拉流"

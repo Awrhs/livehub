@@ -159,7 +159,7 @@ jobs:
           docker stop -t 15 sms
           rc=$(docker inspect sms --format '{{.State.ExitCode}}')
           echo "docker stop took $(( $(date +%s) - start ))s, exit code $rc"
-          docker logs sms 2>&1 | tail -30
+          docker logs sms 2>&1 | tail -80
           [ "${frames:-0}" -ge 60 ] && [ "$rc" = 0 ]
 
   soak:

@@ -15,7 +15,7 @@ WORKDIR /src
 COPY . .
 
 RUN cmake -S . -B build \
-        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DENABLE_TESTS=OFF \
         -DENABLE_BENCHMARKS=OFF \
     && cmake --build build -j"$(nproc)"

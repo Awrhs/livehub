@@ -57,4 +57,6 @@ endif()
 
 # 主可执行文件：流媒体服务器
 add_executable(streaming_server main.cpp)
+# 导出符号，使崩溃时 backtrace_symbols 能打印函数名
+target_link_options(streaming_server PRIVATE -rdynamic)
 target_link_libraries(streaming_server PRIVATE streaming_core)
