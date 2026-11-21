@@ -108,7 +108,7 @@ int main(int argc, char** argv) {
         });
     }
     for (auto& t : clients) t.join();
-    auto t1 = std::chrono::high_resolution_clock::now();
+    auto t1 = std::chrono::steady_clock::now();
     double sec = std::chrono::duration<double>(t1 - t0).count();
 
     for (int fd : fds) ::close(fd);

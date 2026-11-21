@@ -41,7 +41,7 @@ target_link_libraries(streaming_core
 
 # OpenSSL 链接（JWT 用）
 if(OpenSSL_FOUND)
-    target_link_libraries(streaming_core PUBLIC OpenSSL::Crypto)
+    target_link_libraries(streaming_core PUBLIC OpenSSL::SSL OpenSSL::Crypto)
 endif()
 
 # libav 链接（转码用，阶段五）
