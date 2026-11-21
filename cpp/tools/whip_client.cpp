@@ -230,12 +230,11 @@ int main(int argc, char* argv[]) {
         udp.sendto(d, n, peer);
     };
     dtls.setSendCallback(sendUdp);
-    dtls.setReadyCallback([&](const std::vector<uint8_t>& k,
-                              const std::vector<uint8_t>& s) {
-        if (!k.empty()) {
-            srtp.initSend(k, s);
-            srtpKey = k;
-            srtpSalt = s;
+    dtls.setReadyCallback([&](const DtlsTransport::SrtpKeys& keys) {
+        if (!keys.sendKey.empty()) {
+            srtp.initSend(keys.profile, keys.sendKey, keys.sendSalt);
+            srtpKey = keys.sendKey;
+            srtpSalt = keys.sendSalt;
         }
         ready = true;
         LOG_INFO("WHIP client: DTLS ready, SRTP %s",

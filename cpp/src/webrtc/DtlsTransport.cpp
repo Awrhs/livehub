@@ -1,6 +1,7 @@
 #include "webrtc/DtlsTransport.hpp"
 
 #include <cctype>
+#include <vector>
 #include "core/Logger.hpp"
 
 #include <cstring>
@@ -321,13 +322,30 @@ void DtlsTransport::doHandshakeStep() {
 void DtlsTransport::sendPending() {
 #ifdef HAVE_OPENSSL
     if (!impl_->netBio || !impl_->ssl) return;
-    char buf[2048];
+    // BIO pair 是流式 BIO，不保留数据报边界。原实现按 2048 字节一块发送，
+    // 一次握手 flight（多条 record）会被截断到两个 UDP 包里，对端解析失败。
+    // 现读出全部待发数据，按 DTLS record 头（13 字节，末 2 字节为长度）切出完整 record，
+    // 再把完整 record 打包成不超过 MTU 的数据报发送。
+    std::vector<uint8_t> pending;
+    char buf[4096];
     while (true) {
         int n = BIO_read(impl_->netBio, buf, sizeof(buf));
         if (n <= 0) break;
-        if (sendCb_) sendCb_(reinterpret_cast<const uint8_t*>(buf),
-                             static_cast<size_t>(n));
+        pending.insert(pending.end(), buf, buf + n);
     }
+    if (pending.empty() || !sendCb_) return;
+    constexpr size_t kMtu = 1200;
+    size_t off = 0, dgStart = 0;
+    while (off + 13 <= pending.size()) {
+        size_t recLen = 13 + ((size_t(pending[off + 11]) << 8) | pending[off + 12]);
+        if (off + recLen > pending.size()) break;  // 不应发生：SSL 只写完整 record
+        if (off > dgStart && off + recLen - dgStart > kMtu) {
+            sendCb_(pending.data() + dgStart, off - dgStart);
+            dgStart = off;
+        }
+        off += recLen;
+    }
+    if (off > dgStart) sendCb_(pending.data() + dgStart, off - dgStart);
 #endif
 }
 
