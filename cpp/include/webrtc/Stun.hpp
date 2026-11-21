@@ -73,6 +73,9 @@ public:
         const std::string& password = "");
 
     /// STUN 长/短期认证的 HMAC-SHA1 完整性校验（OpenSSL 可用时）
+    /// 校验 FINGERPRINT（RFC 5389 15.5）；无该属性返回 false
+    static bool checkFingerprint(const uint8_t* data, size_t len);
+
     static bool checkIntegrity(const uint8_t* data, size_t len,
                                const std::string& password);
 };

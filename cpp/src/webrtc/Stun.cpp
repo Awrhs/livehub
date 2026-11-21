@@ -174,7 +174,8 @@ std::vector<uint8_t> Stun::buildBindingResponse(
         uint16_t len = static_cast<uint16_t>(msg.size() - 20);
         msg[2] = len >> 8;
         msg[3] = len & 0xFF;
-        uint32_t crc = crc32Ieee(msg.data(), crcOff) ^ 0x5354554E;
+        // RFC 5389 15.5：CRC 覆盖 FINGERPRINT 属性之前的全部字节（不含其 4 字节属性头）
+        uint32_t crc = crc32Ieee(msg.data(), crcOff - 4) ^ 0x5354554E;
         msg[crcOff + 0] = crc >> 24;
         msg[crcOff + 1] = crc >> 16;
         msg[crcOff + 2] = crc >> 8;
@@ -253,7 +254,8 @@ std::vector<uint8_t> Stun::buildBindingRequest(
     uint16_t len = static_cast<uint16_t>(msg.size() - 20);
     msg[2] = len >> 8;
     msg[3] = len & 0xFF;
-    uint32_t crc = crc32Ieee(msg.data(), crcOff) ^ 0x5354554E;
+    // RFC 5389 15.5：CRC 覆盖 FINGERPRINT 属性之前的全部字节（不含其 4 字节属性头）
+        uint32_t crc = crc32Ieee(msg.data(), crcOff - 4) ^ 0x5354554E;
     msg[crcOff + 0] = crc >> 24;
     msg[crcOff + 1] = crc >> 16;
     msg[crcOff + 2] = crc >> 8;
@@ -267,6 +269,16 @@ std::vector<uint8_t> Stun::buildBindingRequest(
     msg[6] = 0xA4;
     msg[7] = 0x42;
     return msg;
+}
+
+bool Stun::checkFingerprint(const uint8_t* data, size_t len) {
+    // FINGERPRINT 必须是最后一个属性：末尾 8 字节 = 类型(0x8028) 长度(4) CRC(4)
+    if (len < 28) return false;
+    const uint8_t* fp = data + len - 8;
+    if (fp[0] != 0x80 || fp[1] != 0x28 || fp[2] != 0 || fp[3] != 4) return false;
+    uint32_t want = (uint32_t(fp[4]) << 24) | (uint32_t(fp[5]) << 16) |
+                    (uint32_t(fp[6]) << 8) | fp[7];
+    return (crc32Ieee(data, len - 8) ^ 0x5354554E) == want;
 }
 
 bool Stun::checkIntegrity(const uint8_t* data, size_t len,

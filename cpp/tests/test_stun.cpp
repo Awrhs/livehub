@@ -20,6 +20,7 @@ TEST(stun_rfc5769_sample_request_integrity) {
         0xbf, 0xd8, 0xcb, 0x56, 0x78, 0x1e, 0xf2, 0xb5, 0xb2, 0xd3, 0xf2, 0x49,
         0xc1, 0xb5, 0x71, 0xa2, 0x80, 0x28, 0x00, 0x04, 0xe5, 0x7a, 0x3b, 0xcf};
     ASSERT_TRUE(Stun::checkIntegrity(req, sizeof(req), "VOkJxbRl1RmTxUk/WvJxBt"));
+    ASSERT_TRUE(Stun::checkFingerprint(req, sizeof(req)));
     ASSERT_FALSE(Stun::checkIntegrity(req, sizeof(req), "wrong-password"));
 }
 #endif
@@ -36,5 +37,6 @@ TEST(stun_binding_response_integrity_roundtrip) {
     ASSERT_EQ(resp[4], uint8_t(0x21));
     ASSERT_EQ(resp[8], uint8_t(1));
     ASSERT_TRUE(Stun::checkIntegrity(resp.data(), resp.size(), "server-pwd-123"));
+    ASSERT_TRUE(Stun::checkFingerprint(resp.data(), resp.size()));
 }
 #endif
