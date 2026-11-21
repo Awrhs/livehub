@@ -37,6 +37,8 @@ public:
     int ioThreads() const { return ioThreads_; }
     int idleTimeoutSec() const { return idleTimeoutSec_; }
     int maxConnections() const { return maxConnections_; }
+    /// WebRTC ICE host 候选地址（公网/内网 IP）；为空则自动探测
+    std::string webrtcCandidateIp() const { return webrtcCandidateIp_; }
     int maxConnectionsPerIp() const { return maxConnectionsPerIp_; }
 
     int hlsSegmentDuration() const { return hlsSegmentDuration_; }
@@ -104,6 +106,7 @@ private:
     uint16_t rtmpPort_ = 1935;
     int ioThreads_ = 4;
     int idleTimeoutSec_ = 30;  // 0 = 不超时
+    std::string webrtcCandidateIp_;
     int maxConnections_ = 10000;     // 每个服务（RTMP/HTTP/RTSP）的连接上限，0=不限
     int maxConnectionsPerIp_ = 0;    // 单 IP 连接上限，0=不限
 

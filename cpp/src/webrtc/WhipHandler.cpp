@@ -5,6 +5,8 @@
 #include "core/Logger.hpp"
 #include "rtmp/MediaStream.hpp"
 #include "webrtc/Sdp.hpp"
+#include "webrtc/SdpAnswer.hpp"
+#include "webrtc/WebRtcUtil.hpp"
 #include "webrtc/WebRtcManager.hpp"
 #include "webrtc/WebRtcIngest.hpp"
 
@@ -19,54 +21,40 @@ void WhipHandler::registerRoutes(HttpServer& server) {
     server.post("/whip/:stream",
                 [this](const HttpRequest& req, HttpResponse& resp) {
                     std::string key = req.param("stream");
-                    // WHIP 推流：若流不存在则创建（发布者）
-                    auto stream =
-                        resolver_ ? resolver_(key, true) : nullptr;
-                    if (!stream) {
-                        resp.setStatusCode(HttpStatusCode::k404NotFound);
+                    auto fail = [&resp](HttpStatusCode code, const std::string& msg) {
+                        resp.setStatusCode(code);
                         resp.setContentType("application/json");
-                        resp.setBody("{\"error\":\"cannot create stream\"}");
-                        return;
-                    }
+                        resp.setBody("{\"error\":\"" + msg + "\"}");
+                    };
+                    std::string reason;
+                    if (auth_ && !auth_(req, key, &reason))
+                        return fail(HttpStatusCode::k403Forbidden, reason.empty() ? "forbidden" : reason);
+                    // WHIP 推流：流名已有推流者时由 resolver 返回空
+                    auto stream = resolver_ ? resolver_(key, true) : nullptr;
+                    if (!stream) return fail(HttpStatusCode::k409Conflict, "stream busy or not allowed");
                     auto ingest = webrtc_->createIngest(key, stream);
-                    if (!ingest) {
-                        resp.setStatusCode(
-                            HttpStatusCode::k503ServiceUnavailable);
-                        resp.setBody("no ports");
-                        return;
-                    }
+                    if (!ingest) return fail(HttpStatusCode::k503ServiceUnavailable, "no ports");
+
                     SdpMessage offer;
                     offer.parse(req.body());
-                    if (!offer.medias.empty()) {
-                        ingest->setRemoteFingerprint(
-                            offer.medias[0].fingerprintHash);
-                    }
-                    stream->setHasPublisher(true);
+                    if (!offer.medias.empty())
+                        ingest->setRemoteFingerprint(offer.medias[0].fingerprintHash);
 
-                    std::ostringstream o;
-                    o << "v=0\r\n";
-                    o << "o=- 0 0 IN IP4 0.0.0.0\r\n";
-                    o << "s=streaming-cpp whip\r\n";
-                    o << "t=0 0\r\n";
-                    o << "m=video " << ingest->port()
-                      << " UDP/TLS/RTP/SAVPF 96\r\n";
-                    o << "c=IN IP4 0.0.0.0\r\n";
-                    o << "a=ice-ufrag:" << ingest->ufrag() << "\r\n";
-                    o << "a=ice-pwd:" << ingest->pwd() << "\r\n";
-                    o << "a=ice-options:trickle\r\n";
-                    o << "a=fingerprint:" << webrtc_->localFingerprint()
-                      << "\r\n";
-                    o << "a=setup:passive\r\n";
-                    o << "a=recvonly\r\n";
-                    o << "a=rtcp-mux\r\n";
-                    o << "a=rtpmap:96 H264/90000\r\n";
-                    o << "a=fmtp:96 packetization-mode=1\r\n";
-                    o << ingest->candidate() << "\r\n";
-                    o << "a=end-of-candidates\r\n";
+                    SdpAnswerParams p;
+                    p.sendVideo = false;
+                    p.port = ingest->port();
+                    p.ufrag = ingest->ufrag();
+                    p.pwd = ingest->pwd();
+                    p.fingerprint = webrtc_->localFingerprint();
+                    p.candidateLine = webrtcCandidateLine(candidateIp_, ingest->port());
+                    auto ans = buildSdpAnswer(req.body(), p);
+                    if (!ans.ok) return fail(HttpStatusCode::k400BadRequest, ans.error);
+                    stream->setHasPublisher(true);
 
                     resp.setStatusCode(HttpStatusCode::k201Created);
                     resp.setContentType("application/sdp");
-                    resp.setBody(o.str());
+                    resp.addHeader("Location", "/whip/" + key);
+                    resp.setBody(ans.sdp);
                 });
 }
 

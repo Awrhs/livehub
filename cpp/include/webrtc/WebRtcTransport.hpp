@@ -37,6 +37,8 @@ public:
     const std::string& ufrag() const { return ufrag_; }
     const std::string& pwd() const { return pwd_; }
     std::string candidate() const;
+    /// 使用 SDP 协商出的 H.264 payload type（原实现固定 96）
+    void setVideoPayloadType(uint8_t pt);
     uint16_t port() const { return ice_ ? ice_->port() : 0; }
     uint32_t ssrc() const { return ssrc_; }
 

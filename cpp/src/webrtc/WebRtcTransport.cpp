@@ -105,6 +105,10 @@ void WebRtcTransport::stop() {
     if (ice_) ice_->stop();
 }
 
+void WebRtcTransport::setVideoPayloadType(uint8_t pt) {
+    if (packetizer_) packetizer_->setPayloadType(pt);
+}
+
 std::string WebRtcTransport::candidate() const {
     return ice_ ? ice_->hostCandidate("127.0.0.1") : "";
 }

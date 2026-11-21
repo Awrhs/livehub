@@ -123,6 +123,8 @@ void Config::loadFromEnv() {
     ioThreads_ = getEnvInt("STREAM_IO_THREADS", ioThreads_);
     idleTimeoutSec_ = getEnvInt("STREAM_IDLE_TIMEOUT", idleTimeoutSec_);
     maxConnections_ = getEnvInt("STREAM_MAX_CONNECTIONS", maxConnections_);
+    if (!getEnv("STREAM_WEBRTC_CANDIDATE_IP", "").empty())
+        webrtcCandidateIp_ = getEnv("STREAM_WEBRTC_CANDIDATE_IP", "");
     maxConnectionsPerIp_ = getEnvInt("STREAM_MAX_CONNECTIONS_PER_IP", maxConnectionsPerIp_);
     hlsSegmentDuration_ =
         getEnvInt("STREAM_HLS_SEGMENT_DURATION", hlsSegmentDuration_);
@@ -194,6 +196,7 @@ void Config::applyKv(const std::string& keyIn, const std::string& value) {
     else if (key == "IO_THREADS") ioThreads_ = asInt();
     else if (key == "IDLE_TIMEOUT") idleTimeoutSec_ = asInt();
     else if (key == "MAX_CONNECTIONS") maxConnections_ = asInt();
+    else if (key == "WEBRTC_CANDIDATE_IP") webrtcCandidateIp_ = value;
     else if (key == "MAX_CONNECTIONS_PER_IP") maxConnectionsPerIp_ = asInt();
     else if (key == "HLS_SEGMENT_DURATION") hlsSegmentDuration_ = asInt();
     else if (key == "HLS_WINDOW_SIZE") hlsWindowSize_ = asInt();

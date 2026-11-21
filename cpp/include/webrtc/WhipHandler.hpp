@@ -9,6 +9,7 @@
 namespace streaming {
 
 class HttpServer;
+class HttpRequest;
 class MediaStream;
 class WebRtcManager;
 
@@ -29,10 +30,19 @@ public:
 
     WhipHandler(WebRtcManager* webrtc, StreamResolver resolver);
     void registerRoutes(HttpServer& server);
+    /// 推/拉流鉴权：key 为流名，token 来自 Authorization: Bearer 或 ?token=
+    using AuthFn = std::function<bool(const HttpRequest& req, const std::string& key,
+                                      std::string* reason)>;
+    void setAuth(AuthFn f) { auth_ = std::move(f); }
+    /// ICE host 候选地址（为空则自动探测首个非回环 IPv4）
+    void setCandidateIp(std::string ip) { candidateIp_ = std::move(ip); }
+
 
 private:
     WebRtcManager* webrtc_;
     StreamResolver resolver_;
+    AuthFn auth_;
+    std::string candidateIp_;
 };
 
 }  // namespace streaming

@@ -16,6 +16,7 @@ const char* HttpResponse::statusString(HttpStatusCode code) {
         case HttpStatusCode::k401Unauthorized: return "Unauthorized";
         case HttpStatusCode::k403Forbidden: return "Forbidden";
         case HttpStatusCode::k404NotFound: return "Not Found";
+        case HttpStatusCode::k409Conflict: return "Conflict";
         case HttpStatusCode::k405MethodNotAllowed: return "Method Not Allowed";
         case HttpStatusCode::k429TooManyRequests: return "Too Many Requests";
         case HttpStatusCode::k500InternalServerError: return "Internal Server Error";

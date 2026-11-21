@@ -59,6 +59,7 @@
 #include "transcode/ProcessManager.hpp"
 #include "transcode/TranscodeManager.hpp"
 #include "webhook/WebhookManager.hpp"
+#include "webrtc/WebRtcUtil.hpp"
 #include "webrtc/WhepHandler.hpp"
 #include "webrtc/WhipHandler.hpp"
 #include "webrtc/WebRtcManager.hpp"
@@ -529,6 +530,8 @@ int main(int argc, char* argv[]) {
     authMw.allow("/api/health");
     authMw.allow("/api/profiles");
     authMw.allow("/live/");
+    authMw.allow("/whip/");  // WHIP/WHEP 走流 token 鉴权（处理器内），不要求管理员
+    authMw.allow("/whep/");
     authMw.allow("/metrics");
     // 中间件对象不可拷贝，用 std::ref 包装后交给 std::function
     if (cfg.enableRateLimit()) httpServer.use(std::ref(rlMw));
@@ -598,15 +601,34 @@ int main(int argc, char* argv[]) {
     auto streamResolver =
         [&](const std::string& key,
             bool createIfMissing) -> std::shared_ptr<MediaStream> {
-        if (createIfMissing) return rtmpServer->getOrCreateStream(key);
+        if (createIfMissing) {
+            // 流名已有推流者（RTMP/SRT/WHIP）时拒绝
+            if (auto cur = rtmpServer->findStream(key))
+                if (cur->hasPublisher()) return nullptr;
+            return rtmpServer->getOrCreateStream(key);
+        }
         return rtmpServer->findStream(key);
     };
+    // WHIP/WHEP 鉴权：流 token 经 Authorization: Bearer（WHIP 规范）或 ?token= 传入
+    auto webrtcAuth = [&](bool publish) {
+        return [&, publish](const HttpRequest& req, const std::string& key,
+                            std::string* reason) {
+            std::string token = webrtcRequestToken(req);
+            std::string raw = token.empty() ? key : key + "?token=" + token;
+            return authorizeStream(req.header("Host"), "live", raw, publish, reason,
+                                   /*countQuota=*/false, /*callHook=*/false);
+        };
+    };
     WhipHandler whipHandler(webrtc.get(), streamResolver);
+    whipHandler.setAuth(webrtcAuth(true));
+    whipHandler.setCandidateIp(cfg.webrtcCandidateIp());
     whipHandler.registerRoutes(httpServer);
     WhepHandler whepHandler(webrtc.get(),
                             [&](const std::string& key) {
                                 return resolvePlayStream(key);
                             });
+    whepHandler.setAuth(webrtcAuth(false));
+    whepHandler.setCandidateIp(cfg.webrtcCandidateIp());
     whepHandler.registerRoutes(httpServer);
 
     // DVR / 录制 / 时移
