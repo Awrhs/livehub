@@ -1,4 +1,5 @@
 #include "rtmp/RtmpConnection.hpp"
+#include "net/EventLoop.hpp"
 #include "rtmp/FlowControl.hpp"
 
 #include "core/Buffer.hpp"
