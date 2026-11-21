@@ -41,10 +41,10 @@ WebRtcIngest::WebRtcIngest(EventLoop* loop, uint16_t udpPort, std::string ufrag,
         if (ice_) ice_->send(d, n);
     });
     dtls_->setReadyCallback(
-        [this](const std::vector<uint8_t>& key,
-               const std::vector<uint8_t>& salt) {
+        [this](const DtlsTransport::SrtpKeys& keys) {
             srtpRecv_ = std::make_unique<SrtpSession>();
-            srtpRecv_->initRecv(key, salt);
+            if (!srtpRecv_->initRecv(keys.profile, keys.recvKey, keys.recvSalt))
+                LOG_WARN("WebRtcIngest: SRTP init failed (profile %d)", keys.profile);
             dtlsReady_ = true;
         });
 

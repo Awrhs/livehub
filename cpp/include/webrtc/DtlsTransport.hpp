@@ -25,9 +25,13 @@ public:
     enum class Role { kClient, kServer };
 
     using SendCallback = std::function<void(const uint8_t*, size_t)>;
-    using ReadyCallback =
-        std::function<void(const std::vector<uint8_t>& srtpKey,
-                           const std::vector<uint8_t>& srtpSalt)>;
+    /// DTLS-SRTP 导出的密钥（RFC 5764 4.2），按本端角色区分收发方向
+    struct SrtpKeys {
+        int profile = 0;                    // SRTP 保护 profile（1=AES_CM_SHA1_80，7=AEAD_AES_128_GCM）
+        std::vector<uint8_t> sendKey, sendSalt;  // 本端发送（加密）
+        std::vector<uint8_t> recvKey, recvSalt;  // 对端发来（解密）
+    };
+    using ReadyCallback = std::function<void(const SrtpKeys&)>;
 
     DtlsTransport(Role role, std::string localFingerprint);
     ~DtlsTransport();

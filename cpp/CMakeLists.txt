@@ -69,6 +69,17 @@ if(PKG_CONFIG_FOUND)
     endif()
 endif()
 
+# libsrtp2（WebRTC SRTP；缺失时 SRTP 为明文直通，仅供协议联调，无法与标准客户端互通）
+if(PKG_CONFIG_FOUND)
+    pkg_check_modules(LIBSRTP2 QUIET libsrtp2)
+endif()
+if(LIBSRTP2_FOUND)
+    message(STATUS "libsrtp2 found: ${LIBSRTP2_VERSION}")
+    add_compile_definitions(HAVE_SRTP=1)
+else()
+    message(STATUS "libsrtp2 NOT found - WebRTC SRTP disabled (passthrough)")
+endif()
+
 # libsrt（SRT 接入/分发；缺失时 SRT 服务禁用）
 if(PKG_CONFIG_FOUND)
     pkg_check_modules(LIBSRT QUIET srt)

@@ -1,10 +1,13 @@
 #include "webrtc/DtlsTransport.hpp"
+
+#include <cctype>
 #include "core/Logger.hpp"
 
 #include <cstring>
 #include <memory>
 
 #ifdef HAVE_OPENSSL
+#include <openssl/srtp.h>
 #include <openssl/asn1.h>
 #include <openssl/bio.h>
 #include <openssl/err.h>
@@ -196,8 +199,16 @@ bool DtlsTransport::init(const std::string& certPem,
     SSL_CTX_set_tlsext_use_srtp(
         impl_->ctx,
         "SRTP_AEAD_AES_128_GCM:SRTP_AES128_CM_SHA1_80");
+    // WebRTC 要求双向证书：请求对端证书；自签名证书在 verify 回调中放行，
+    // 握手完成后与 SDP a=fingerprint 比对（防中间人）
+    SSL_CTX_set_verify(impl_->ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
+                       [](int, X509_STORE_CTX*) { return 1; });
 
     impl_->ssl = SSL_new(impl_->ctx);
+    // 内存 BIO 无法探测 MTU（已设 SSL_OP_NO_QUERY_MTU），必须显式设置，
+    // 否则 MTU 为 0 导致握手失败
+    DTLS_set_link_mtu(impl_->ssl, 1200);
+    SSL_set_mtu(impl_->ssl, 1200);
     // 内存 BIO 对：internal 交给 SSL，netBio 由本类持有用于收发
     BIO* internal = nullptr;
     BIO_new_bio_pair(&internal, 0, &impl_->netBio, 0);
@@ -216,7 +227,7 @@ bool DtlsTransport::init(const std::string& certPem,
     LOG_WARN("DTLS: OpenSSL unavailable, running in passthrough/stub mode");
     // stub 模式：握手直接标记完成，key 为空
     established_ = true;
-    if (readyCb_) readyCb_({}, {});
+    if (readyCb_) readyCb_(SrtpKeys{});
     return true;
 #endif
 }
@@ -226,7 +237,7 @@ void DtlsTransport::startHandshake() {
     doHandshakeStep();
 #else
     established_ = true;
-    if (readyCb_) readyCb_({}, {});
+    if (readyCb_) readyCb_(SrtpKeys{});
 #endif
 }
 
@@ -235,21 +246,57 @@ void DtlsTransport::doHandshakeStep() {
     int rc = SSL_do_handshake(impl_->ssl);
     sendPending();
     if (rc == 1) {
-        established_ = true;
-        // 导出 SRTP key/salt（RFC 5764）
-        unsigned char buf[60];
-        if (SSL_export_keying_material(impl_->ssl, buf, sizeof(buf),
-                                       "EXTRACTOR-dtls_srtp", 19, nullptr, 0,
-                                       0) == 1) {
-            // SRTP_AEAD_AES_128_GCM:
-            //   client_write_SRTP_master_key(16) | server_write_...key(16) |
-            //   client_write_SRTP_master_salt(12) | server_write_...salt(12)
-            std::vector<uint8_t> key(buf, buf + 16);
-            std::vector<uint8_t> salt(buf + 32, buf + 32 + 12);
-            if (readyCb_) readyCb_(key, salt);
-        } else if (readyCb_) {
-            readyCb_({}, {});
+        // 校验对端证书指纹（SDP a=fingerprint:sha-256 XX:XX...）
+        if (!remoteFingerprint_.empty()) {
+            std::string want = remoteFingerprint_;
+            auto sp = want.find(' ');
+            if (sp != std::string::npos) want = want.substr(sp + 1);
+            for (auto& ch : want) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+            std::string got;
+            if (X509* peer = SSL_get1_peer_certificate(impl_->ssl)) {
+                unsigned char md[EVP_MAX_MD_SIZE];
+                unsigned int n = 0;
+                if (X509_digest(peer, EVP_sha256(), md, &n) == 1) {
+                    char hex[4];
+                    for (unsigned int i = 0; i < n; ++i) {
+                        std::snprintf(hex, sizeof(hex), i ? ":%02X" : "%02X", md[i]);
+                        got += hex;
+                    }
+                }
+                X509_free(peer);
+            }
+            if (got != want) {
+                LOG_WARN("DTLS: peer certificate fingerprint mismatch (got %s)", got.c_str());
+                return;
+            }
         }
+        established_ = true;
+        // 导出 SRTP 密钥（RFC 5764 4.2）：
+        //   client_key | server_key | client_salt | server_salt
+        // 长度取决于协商的 profile；本端为服务端时发送用 server_*、接收用 client_*
+        SrtpKeys keys;
+        const SRTP_PROTECTION_PROFILE* prof = SSL_get_selected_srtp_profile(impl_->ssl);
+        size_t keyLen = 16, saltLen = 14;
+        if (prof) keys.profile = static_cast<int>(prof->id);
+        if (keys.profile == SRTP_AEAD_AES_128_GCM) saltLen = 12;
+        std::vector<uint8_t> km(2 * (keyLen + saltLen));
+        if (prof && SSL_export_keying_material(impl_->ssl, km.data(), km.size(),
+                                               "EXTRACTOR-dtls_srtp", 19, nullptr, 0,
+                                               0) == 1) {
+            const uint8_t* ck = km.data();
+            const uint8_t* sk = ck + keyLen;
+            const uint8_t* cs = sk + keyLen;
+            const uint8_t* ss = cs + saltLen;
+            bool server = (role_ == Role::kServer);
+            keys.sendKey.assign(server ? sk : ck, (server ? sk : ck) + keyLen);
+            keys.sendSalt.assign(server ? ss : cs, (server ? ss : cs) + saltLen);
+            keys.recvKey.assign(server ? ck : sk, (server ? ck : sk) + keyLen);
+            keys.recvSalt.assign(server ? cs : ss, (server ? cs : ss) + saltLen);
+            LOG_INFO("DTLS: handshake done, SRTP profile %d", keys.profile);
+        } else {
+            LOG_WARN("DTLS: no SRTP profile negotiated / key export failed");
+        }
+        if (readyCb_) readyCb_(keys);
         return;
     }
     int err = SSL_get_error(impl_->ssl, rc);
@@ -257,7 +304,15 @@ void DtlsTransport::doHandshakeStep() {
         // 等待对端数据；feed() 后会继续
         return;
     }
-    LOG_WARN("DTLS handshake error: %d", err);
+    char ebuf[256];
+    unsigned long e;
+    std::string detail;
+    while ((e = ERR_get_error()) != 0) {
+        ERR_error_string_n(e, ebuf, sizeof(ebuf));
+        if (!detail.empty()) detail += " | ";
+        detail += ebuf;
+    }
+    LOG_WARN("DTLS handshake error: %d %s", err, detail.c_str());
 #else
     established_ = true;
 #endif

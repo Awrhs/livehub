@@ -50,6 +50,11 @@ if(AVFORMAT_FOUND AND AVCODEC_FOUND AND AVUTIL_FOUND AND SWRESAMPLE_FOUND AND SW
     target_link_libraries(streaming_core PUBLIC ${AVFORMAT_LIBRARIES} ${AVCODEC_LIBRARIES} ${AVUTIL_LIBRARIES} ${SWRESAMPLE_LIBRARIES} ${SWSCALE_LIBRARIES})
 endif()
 
+if(LIBSRTP2_FOUND)
+    target_include_directories(streaming_core PUBLIC ${LIBSRTP2_INCLUDE_DIRS})
+    target_link_libraries(streaming_core PUBLIC ${LIBSRTP2_LINK_LIBRARIES})
+endif()
+
 if(LIBSRT_FOUND)
     target_include_directories(streaming_core PUBLIC ${LIBSRT_INCLUDE_DIRS})
     target_link_libraries(streaming_core PUBLIC ${LIBSRT_LINK_LIBRARIES})

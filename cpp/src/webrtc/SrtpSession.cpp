@@ -31,7 +31,7 @@ SrtpSession::~SrtpSession() {
 }
 
 #ifdef HAVE_SRTP
-static srtp_t createSession(const std::vector<uint8_t>& key,
+static srtp_t createSession(int profile, const std::vector<uint8_t>& key,
                             const std::vector<uint8_t>& salt,
                             ssrc_type_t direction) {
     if (!Impl::initialized) {
@@ -40,9 +40,14 @@ static srtp_t createSession(const std::vector<uint8_t>& key,
     }
     srtp_policy_t policy;
     std::memset(&policy, 0, sizeof(policy));
-    // AEAD AES_128_GCM
-    srtp_crypto_policy_set_aes_gcm_128_16_auth(&policy.rtp);
-    srtp_crypto_policy_set_aes_gcm_128_16_auth(&policy.rtcp);
+    // 按协商的 profile 选择加密套件（原实现固定 GCM）
+    if (profile == SrtpSession::kAeadAes128Gcm) {
+        srtp_crypto_policy_set_aes_gcm_128_16_auth(&policy.rtp);
+        srtp_crypto_policy_set_aes_gcm_128_16_auth(&policy.rtcp);
+    } else {
+        srtp_crypto_policy_set_aes_cm_128_hmac_sha1_80(&policy.rtp);
+        srtp_crypto_policy_set_aes_cm_128_hmac_sha1_80(&policy.rtcp);
+    }
     policy.ssrc.type = direction;
     policy.ssrc.value = 0;
     policy.window_size = 1024;
@@ -60,12 +65,13 @@ static srtp_t createSession(const std::vector<uint8_t>& key,
 }
 #endif
 
-bool SrtpSession::initSend(const std::vector<uint8_t>& key,
+bool SrtpSession::initSend(int profile, const std::vector<uint8_t>& key,
                            const std::vector<uint8_t>& salt) {
 #ifdef HAVE_SRTP
-    impl_->sendSession = createSession(key, salt, SSRC_ANY_OUTBOUND);
+    impl_->sendSession = createSession(profile, key, salt, SSRC_ANY_OUTBOUND);
     return impl_->sendSession != nullptr;
 #else
+    (void)profile;
     (void)key;
     (void)salt;
     LOG_WARN("SRTP: libsrtp2 unavailable, running in passthrough mode");
@@ -73,12 +79,13 @@ bool SrtpSession::initSend(const std::vector<uint8_t>& key,
 #endif
 }
 
-bool SrtpSession::initRecv(const std::vector<uint8_t>& key,
+bool SrtpSession::initRecv(int profile, const std::vector<uint8_t>& key,
                            const std::vector<uint8_t>& salt) {
 #ifdef HAVE_SRTP
-    impl_->recvSession = createSession(key, salt, SSRC_ANY_INBOUND);
+    impl_->recvSession = createSession(profile, key, salt, SSRC_ANY_INBOUND);
     return impl_->recvSession != nullptr;
 #else
+    (void)profile;
     (void)key;
     (void)salt;
     return true;

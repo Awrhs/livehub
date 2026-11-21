@@ -19,11 +19,15 @@ public:
     SrtpSession();
     ~SrtpSession();
 
+    /// profile：DTLS-SRTP 协商结果（1 = AES_CM_128_HMAC_SHA1_80，7 = AEAD_AES_128_GCM）
+    static constexpr int kAes128CmSha1_80 = 1;
+    static constexpr int kAeadAes128Gcm = 7;
+
     /// 初始化发送方向（本端发出的 RTP/RTCP 加密）
-    bool initSend(const std::vector<uint8_t>& key,
+    bool initSend(int profile, const std::vector<uint8_t>& key,
                   const std::vector<uint8_t>& salt);
     /// 初始化接收方向（对端发来的 RTP/RTCP 解密）
-    bool initRecv(const std::vector<uint8_t>& key,
+    bool initRecv(int profile, const std::vector<uint8_t>& key,
                   const std::vector<uint8_t>& salt);
 
     /// 保护（加密）一个 RTP 报文，原地写入密文，返回新长度；失败返回 -1
