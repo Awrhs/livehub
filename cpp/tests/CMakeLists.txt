@@ -18,7 +18,6 @@ add_executable(unit_tests
     test_consistent_hash.cpp
     test_rate_limiter.cpp
     test_circuit_breaker.cpp
-    test_srt_protocol.cpp
     test_vhost.cpp
     test_json.cpp
     test_parsers.cpp

@@ -881,12 +881,19 @@ int main(int argc, char* argv[]) {
     auto srtServer = std::make_shared<SrtServer>(&baseLoop, cfg.srtPort());
     srtServer->setStreamResolver(
         [&](const std::string& key) -> std::shared_ptr<MediaStream> {
-            // SRT 推流：注册到 RTMP 流表；getOrCreateStream 已通过
-            // onPublish_ 建好 HLS 桥接 / 统计 / DVR 时移 / webhook，
-            // 这里只需标记发布者存在即可复用整条分发链。
+            // SRT 推流：注册到 RTMP 流表，复用 HLS 桥接 / 统计 / DVR 等整条分发链。
+            // 流名已有推流者（RTMP 或 SRT）时拒绝，避免两路数据写入同一流。
+            if (auto cur = rtmpServer->findStream(key)) {
+                if (cur->hasPublisher()) return nullptr;
+            }
             auto ms = rtmpServer->getOrCreateStream(key);
             ms->setHasPublisher(true);
             return ms;
+        });
+    srtServer->setAuthHandler(
+        [&](const std::string& rawKey, bool publish, std::string* reason) {
+            return authorizeStream("", "live", rawKey, publish, reason,
+                                   /*countQuota=*/false, /*callHook=*/true);
         });
     srtServer->setPlayResolver(
         [&](const std::string& key) -> std::shared_ptr<MediaStream> {
@@ -895,7 +902,9 @@ int main(int argc, char* argv[]) {
     // SRT 推流断开：从 RTMP 流表移除（removeStream 会触发 on_unpublish/on_stop
     // webhook 与桥接/统计清理），与 RTMP deleteStream 走同一条回收路径。
     srtServer->setUnpublishHandler(
-        [&](const std::string& key) { rtmpServer->removeStream(key); });
+        [&](const std::string& key, const std::shared_ptr<MediaStream>& ms) {
+            rtmpServer->removeStream(key, ms);
+        });
     srtServer->start();
 
     // ---- 健康检查（含系统指标；需在 SRT 之后注册以统计活跃连接）----
@@ -1144,6 +1153,7 @@ int main(int argc, char* argv[]) {
     httpServer.stop();
     rtmpServer->stop();
     rtspServer->stop();
+    srtServer->stop();
     for (const auto& key : hlsManager->keys()) hlsManager->endStream(key);
     transcodeManager->stop();
     healthChecker->stop();

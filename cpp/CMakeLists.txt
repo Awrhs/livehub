@@ -69,6 +69,17 @@ if(PKG_CONFIG_FOUND)
     endif()
 endif()
 
+# libsrt（SRT 接入/分发；缺失时 SRT 服务禁用）
+if(PKG_CONFIG_FOUND)
+    pkg_check_modules(LIBSRT QUIET srt)
+endif()
+if(LIBSRT_FOUND)
+    message(STATUS "libsrt found: ${LIBSRT_VERSION}")
+    add_compile_definitions(HAVE_LIBSRT=1)
+else()
+    message(STATUS "libsrt NOT found - SRT disabled")
+endif()
+
 # 核心库
 add_subdirectory(src)
 

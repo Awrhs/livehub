@@ -97,14 +97,21 @@ else
     fail "未生成录像文件（$(find "$WORK" -name '*.mp4' | head -3 | tr '\n' ' ')）"
 fi
 
-echo "== SRT 推流"
+echo "== SRT"
 if ffmpeg -hide_banner -protocols 2>/dev/null | grep -qw srt; then
-    timeout 30 ffmpeg -hide_banner -loglevel warning -re -f lavfi -i "testsrc2=size=320x240:rate=25" \
+    timeout 40 ffmpeg -hide_banner -loglevel warning -re -f lavfi -i "testsrc2=size=320x240:rate=25" \
         -f lavfi -i "sine=frequency=600:sample_rate=48000" \
-        -c:v libx264 -preset ultrafast -g 50 -pix_fmt yuv420p -c:a aac -t 25 \
+        -c:v libx264 -preset ultrafast -g 50 -pix_fmt yuv420p -c:a aac -t 30 \
         -f mpegts "srt://127.0.0.1:$SRT?streamid=#!::r=live/srtin,m=publish" >"$WORK/push_srt.log" 2>&1 &
     sleep 9
-    probe srt_flv "http://127.0.0.1:$HTTP/live/srtin.flv" h264 3 40
+    probe srt_in_flv "http://127.0.0.1:$HTTP/live/srtin.flv" h264 3 40
+    probe srt_in_hls "http://127.0.0.1:$HTTP/live/srtin.m3u8" h264 3 40
+    probe srt_out "srt://127.0.0.1:$SRT?streamid=#!::r=live/avc,m=request" h264 3 40
+    # 重复推流到已有 RTMP 流应被拒绝
+    timeout 8 ffmpeg -hide_banner -loglevel error -re -f lavfi -i "testsrc2=size=160x120:rate=10" \
+        -c:v libx264 -preset ultrafast -t 4 -f mpegts \
+        "srt://127.0.0.1:$SRT?streamid=#!::r=live/avc,m=publish" >/dev/null 2>&1 \
+        && fail "SRT 抢占已有 RTMP 流未被拒绝" || pass "SRT 抢占已有 RTMP 流被拒绝"
     grep -iE 'error|fail' "$WORK/push_srt.log" | head -3
 else
     echo "  [INFO] ffmpeg 未编译 SRT 支持，跳过"

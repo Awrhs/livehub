@@ -5,7 +5,7 @@ FROM ubuntu:24.04 AS builder
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential cmake \
-        libssl-dev \
+        libssl-dev libsrt-openssl-dev \
         libavcodec-dev libavformat-dev libavutil-dev \
         libswscale-dev libswresample-dev \
         pkg-config \
@@ -25,7 +25,7 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libssl3 ffmpeg \
+        libssl3 libsrt1.5-openssl ffmpeg \
         libavcodec60 libavformat60 libavutil58 \
         libswscale7 libswresample4 \
         ca-certificates tini \

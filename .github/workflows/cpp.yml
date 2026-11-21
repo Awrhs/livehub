@@ -27,7 +27,7 @@ jobs:
           - name: "gcc full (OpenSSL + FFmpeg)"
             cc: gcc
             cxx: g++
-            deps: "libssl-dev libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev"
+            deps: "libssl-dev libsrt-openssl-dev libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev"
             cmake_flags: "-DCMAKE_BUILD_TYPE=Debug -DENABLE_ASAN=ON -DENABLE_WERROR=ON"
           - name: "clang Release"
             cc: clang
@@ -69,7 +69,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake g++ ffmpeg netcat-openbsd libssl-dev gdb
+          sudo apt-get install -y cmake g++ ffmpeg netcat-openbsd libssl-dev libsrt-openssl-dev gdb
 
       - name: Build (Debug + ASan)
         run: |
@@ -102,7 +102,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake g++ ffmpeg netcat-openbsd libssl-dev gdb
+          sudo apt-get install -y cmake g++ ffmpeg netcat-openbsd libssl-dev libsrt-openssl-dev gdb
 
       - name: Build (Debug + TSan)
         run: |
@@ -172,7 +172,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake g++ ffmpeg libssl-dev
+          sudo apt-get install -y cmake g++ ffmpeg libssl-dev libsrt-openssl-dev
 
       - name: Build (Release)
         run: |
@@ -204,7 +204,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake g++ ffmpeg libssl-dev
+          sudo apt-get install -y cmake g++ ffmpeg libssl-dev libsrt-openssl-dev
 
       - name: Build (Debug + ASan)
         run: |

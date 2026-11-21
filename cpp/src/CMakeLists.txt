@@ -50,6 +50,11 @@ if(AVFORMAT_FOUND AND AVCODEC_FOUND AND AVUTIL_FOUND AND SWRESAMPLE_FOUND AND SW
     target_link_libraries(streaming_core PUBLIC ${AVFORMAT_LIBRARIES} ${AVCODEC_LIBRARIES} ${AVUTIL_LIBRARIES} ${SWRESAMPLE_LIBRARIES} ${SWSCALE_LIBRARIES})
 endif()
 
+if(LIBSRT_FOUND)
+    target_include_directories(streaming_core PUBLIC ${LIBSRT_INCLUDE_DIRS})
+    target_link_libraries(streaming_core PUBLIC ${LIBSRT_LINK_LIBRARIES})
+endif()
+
 # 主可执行文件：流媒体服务器
 add_executable(streaming_server main.cpp)
 target_link_libraries(streaming_server PRIVATE streaming_core)
