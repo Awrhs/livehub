@@ -58,3 +58,34 @@ jobs:
 
       - name: Build benchmarks
         run: cmake --build cpp/build --target bench_buffer bench_lru bench_http bench_concurrent -j"$(nproc)"
+
+  e2e:
+    name: "E2E (ffmpeg 推拉流, ASan)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ ffmpeg netcat-openbsd libssl-dev
+
+      - name: Build (Debug + ASan)
+        run: |
+          cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Debug -DENABLE_ASAN=ON -DENABLE_TESTS=OFF -DENABLE_TOOLS=OFF
+          cmake --build cpp/build --target streaming_server -j"$(nproc)"
+
+      - name: Run E2E
+        env:
+          ASAN_OPTIONS: "detect_leaks=1:abort_on_error=0:halt_on_error=0"
+          UBSAN_OPTIONS: "print_stacktrace=1"
+          E2E_ARTIFACT_DIR: ${{ github.workspace }}/e2e-artifacts
+        run: cpp/tests/e2e/e2e_core.sh "$PWD/cpp/build/bin/streaming_server"
+
+      - name: Upload E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: e2e-artifacts
+          retention-days: 7
