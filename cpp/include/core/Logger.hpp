@@ -72,6 +72,9 @@ public:
     /// 供 AccessLog 等自行组装完整 JSON 行时使用。
     void logRaw(const char* data, size_t len);
 
+    /// 刷新缓冲（退出前调用）
+    void flush();
+
     /// JSON 字符串转义（" \ 控制字符），公共静态便于单测复用
     static std::string jsonEscape(const std::string& s);
 
@@ -88,7 +91,6 @@ private:
 
     // 线程安全写入
     void writeLine(const char* data, size_t len);
-    void flush();
 };
 
 // 当前文件名（编译期）

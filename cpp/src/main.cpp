@@ -1186,5 +1186,9 @@ int main(int argc, char* argv[]) {
     asyncWriter->stop();  // 等待已排队的分片写盘完成
 
     LOG_INFO("streaming_server stopped");
-    return 0;
+    Logger::instance().flush();
+    // 所有组件已有序关闭；跳过全局/静态析构直接退出。
+    // 部分第三方库（如 Ubuntu 24.04 的 libsrt-gnutls 1.5）在全局析构阶段会段错误。
+    std::fflush(nullptr);
+    ::_exit(0);
 }

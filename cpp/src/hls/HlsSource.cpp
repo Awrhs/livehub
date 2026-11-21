@@ -16,6 +16,8 @@ HlsSource::HlsSource(std::string streamKey, std::string outputDir,
                      int targetDuration, int windowSize)
     : streamKey_(std::move(streamKey)),
       targetDuration_(targetDuration) {
+    // 创建即视为活跃：否则 sweep 恰在首帧前运行时（now - 0 > 超时）会立即回收新源
+    lastActiveMs_.store(nowMs());
     segmenter_ = std::make_unique<Segmenter>(
         std::move(outputDir), streamKey_, targetDuration, windowSize);
 }

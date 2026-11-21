@@ -295,10 +295,13 @@ grep -q closed_after "$WORK/idle.out" && pass "空闲 RTMP 连接被断开 ($(ca
 
 echo "== 慢观众流控"
 wait "$SLOW_PID" 2>/dev/null
+# 慢观众应被处理：积压超限丢帧/断开，或读写无进展触发空闲超时断开
 if grep -qE 'slow client' "$LOG"; then
     pass "慢观众触发流控: $(grep -m1 -E 'slow client' "$LOG" | cut -c1-160)"
+elif grep -qE 'server-18080#[0-9]+:[0-9]+\] idle .* force close' "$LOG"; then
+    pass "慢观众被空闲超时断开: $(grep -m1 -E 'server-18080.*idle .* force close' "$LOG" | cut -c1-160)"
 else
-    fail "慢观众未触发流控（$(cat "$WORK/slow.out")）"
+    fail "慢观众未被处理（$(cat "$WORK/slow.out")）"
 fi
 RSS1=$(rss_kb)
 echo "  [INFO] 推拉流期间 RSS: ${RSS1} kB（启动时 ${RSS0} kB）"
