@@ -17,7 +17,12 @@ HLS_OUTPUT_DIR=./hls
 CACHE_SIZE_MB=256
 
 # JWT 签名密钥（vhost 未单独配置时回落到此值）
-JWT_SECRET=change-me-please
+# JWT 签名密钥：必须配置为足够长的随机串（openssl rand -hex 32）。
+# 未配置时每次启动随机生成（重启后已签发的 token 全部失效）。
+JWT_SECRET=
+# 管理接口令牌（Authorization: Bearer <ADMIN_TOKEN>）。未配置时 /api/* 管理接口关闭。
+# /api/token 仅管理员可调用，用于签发推/拉流 token。
+ADMIN_TOKEN=
 
 LOG_LEVEL=INFO
 # JSON 行日志（Loki/ELK 采集友好；trace_id 自动随行输出）

@@ -108,7 +108,8 @@ Sources (later overrides earlier): defaults → config file → `STREAM_*` env.
 | `STREAM_HLS_WINDOW_SIZE` | 5 | live sliding window (segments) |
 | `STREAM_HLS_OUTPUT_DIR` | `./hls` | segment output directory |
 | `STREAM_CACHE_SIZE_MB` | 256 | hot-segment cache |
-| `STREAM_JWT_SECRET` | built-in dev secret | **set in production** |
+| `STREAM_JWT_SECRET` | random per start | **must be set in production** (random → tokens die on restart) |
+| `STREAM_ADMIN_TOKEN` | empty | bearer token for admin APIs; empty = admin API disabled |
 | `STREAM_LOG_LEVEL` / `STREAM_LOG_JSON` | `INFO` / off | log level; JSON lines with trace ids for Loki/ELK |
 | `STREAM_RATE_LIMIT_PER_SEC` / `_BURST` | 100 / 200 | per-IP global token bucket (routes without a policy) |
 | `STREAM_RATE_{PLAYBACK,API,AUTH,TRANSCODE,ADMIN}_PER_MIN` | 300/100/10/5/20 | per-route rate policies (longest-prefix match; 0 = off) |
@@ -147,10 +148,12 @@ ffplay http://127.0.0.1:8080/live/test.flv
 ffplay rtsp://127.0.0.1:8554/live/test
 ffplay "srt://127.0.0.1:19535?streamid=#!::r=live/test,m=request"
 
-# Auth token (when a vhost has enable_auth=true, append ?token=<jwt>)
-TOKEN=$(curl -s -XPOST localhost:8080/api/token -d 'user=demo')
-# Revoke it (enforced on the next request; shared across nodes via Redis)
-curl -XPOST localhost:8080/api/logout -H "Authorization: Bearer $TOKEN"
+# Auth（vhost 开启 enable_auth 时，推/拉流 URL 需带 ?token=<jwt>）
+# 由管理员签发流 token：stream 绑定流名，scope=publish|play|all，ttl 秒
+TOKEN=$(curl -s -XPOST -H "Authorization: Bearer $ADMIN_TOKEN" \
+  "localhost:8080/api/token?stream=test&scope=publish&ttl=3600" | jq -r .token)
+ffmpeg -re -i input.mp4 -c copy -f flv "rtmp://127.0.0.1/live/test?token=$TOKEN"
+# HLS/HTTP-FLV/WS-FLV 同样校验 ?token=（m3u8 中分片 URI 会自动携带 token）
 
 # DVR control
 curl -XPOST localhost:8080/api/record/test/start

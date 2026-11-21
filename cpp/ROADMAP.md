@@ -20,7 +20,8 @@
 | 重复推流拒绝、流名查询串、断流 ENDLIST / 重推 DISCONTINUITY | ✅ | E2E |
 | 慢观众背压（丢帧至关键帧 / 超限断开）、空闲超时 | ✅ | E2E |
 | TSan 下全部 E2E 场景无数据竞争报告 | ✅ | E2E (TSan) |
-| WS-FLV / 鉴权 / 限流 / vhost / webhook | ⚠️ 编译通过，未经端到端验证 | — |
+| 鉴权：管理令牌、流 token（stream/scope 绑定）、RTMP/HTTP-FLV/HLS 播放鉴权 | ✅ | E2E |
+| WS-FLV / 限流 / webhook | ⚠️ 编译通过，未经端到端验证 | — |
 | SRT / WebRTC / RTSP / 转码 / DVR / 集群 | ⚠️ 编译通过，未经验证，推测问题很多 | — |
 
 ### 第一轮已修复的致命问题（节选）
@@ -55,7 +56,8 @@
 
 ### P1 —— 安全与运维
 
-- [ ] 鉴权端到端验证：RTMP 推/拉、HTTP-FLV/HLS 的 JWT；默认 `JWT_SECRET` 为弱值时拒绝启动或告警
+- [x] 鉴权重做并端到端验证：此前 `/api/token` 无需鉴权（任何人可领 token）、HTTP 播放不鉴权、
+      源码内置 JWT 密钥。现管理员签发绑定 stream/scope/ttl 的 token，RTMP/HTTP-FLV/HLS/WS-FLV 统一校验
 - [ ] 连接数上限（全局 / 单 IP）
 - [ ] RTMP Acknowledgement（窗口确认）发送，兼容严格客户端
 - [ ] 时间戳跳变/回退处理（分片 discontinuity、FLV 时间戳单调化）
