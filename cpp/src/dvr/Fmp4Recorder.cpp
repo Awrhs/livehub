@@ -50,7 +50,7 @@ void Fmp4Recorder::start() {
         auto vsh = stream_->videoSequenceHeader();
         if (!vsh.empty() && vsh.size() >= 6) {
             std::lock_guard<std::mutex> lk(mu_);
-            if (EnhancedRtmp::isExHeader(vsh[0])) {
+            if (EnhancedRtmp::isExVideo(vsh[0])) {
                 EnhancedRtmp::VideoInfo vi;
                 if (EnhancedRtmp::parseVideo(vsh.data(), vsh.size(), vi) &&
                     vi.codec == VideoCodec::kHevc && vi.payloadLen > 0) {
@@ -65,7 +65,7 @@ void Fmp4Recorder::start() {
         auto ash = stream_->audioSequenceHeader();
         if (!ash.empty() && ash.size() >= 2) {
             std::lock_guard<std::mutex> lk(mu_);
-            if (EnhancedRtmp::isExHeader(ash[0])) {
+            if (EnhancedRtmp::isExAudio(ash[0])) {
                 EnhancedRtmp::AudioInfo ai;
                 if (EnhancedRtmp::parseAudio(ash.data(), ash.size(), ai) &&
                     ai.payloadLen > 0) {

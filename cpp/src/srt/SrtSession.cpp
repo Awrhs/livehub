@@ -372,9 +372,9 @@ void SrtSession::attachPlayStream(
                 if (pkt.isSequenceHeader) {
                     if (hevc) {
                         // hvCC -> Annex-B VPS/SPS/PPS
-                        if (pkt.enhanced && pkt.data.size() > 6)
-                            annexb = HevcParser::buildAnnexBConfig(
-                                pkt.data.data() + 6, pkt.data.size() - 6);
+                        EnhancedRtmp::VideoInfo vi;
+                        if (EnhancedRtmp::parseVideo(pkt.data.data(), pkt.data.size(), vi))
+                            annexb = HevcParser::buildAnnexBConfig(vi.payload, vi.payloadLen);
                     } else if (pkt.data.size() > 5) {
                         // AVC seq header -> 提取 SPS/PPS 并拼接为 Annex-B
                         std::vector<uint8_t> sps, pps;
@@ -394,14 +394,11 @@ void SrtSession::attachPlayStream(
                     size_t sampleLen = 0;
                     int64_t pts90 = pkt.timestamp * 90LL;
                     int64_t dts90 = pkt.timestamp * 90LL;
-                    if (hevc && pkt.enhanced && pkt.data.size() > 9) {
-                        sample = pkt.data.data() + 9;
-                        sampleLen = pkt.data.size() - 9;
-                        int32_t cts = (int32_t(pkt.data[6]) << 16) |
-                                      (int32_t(pkt.data[7]) << 8) |
-                                      int32_t(pkt.data[8]);
-                        if (cts & 0x800000) cts |= 0xFF000000;
-                        pts90 = (pkt.timestamp + cts) * 90LL;
+                    EnhancedRtmp::VideoInfo vi;
+                    if (hevc && EnhancedRtmp::parseVideo(pkt.data.data(), pkt.data.size(), vi)) {
+                        sample = vi.payload;
+                        sampleLen = vi.payloadLen;
+                        pts90 = (static_cast<int64_t>(pkt.timestamp) + vi.cts) * 90LL;
                         auto ab = HevcParser::hvccToAnnexB(sample, sampleLen, 3);
                         annexb = std::move(ab);
                         muxer->setVideoStreamType(kStreamTypeHevc);

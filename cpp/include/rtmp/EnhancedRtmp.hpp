@@ -9,27 +9,24 @@
 namespace streaming {
 
 /**
- * EnhancedRtmp: Enhanced RTMP（veovera/enhanced-rtmp）视频/音频消息头解析。
+ * EnhancedRtmp: Enhanced RTMP（veovera/enhanced-rtmp v1/v2）视频/音频标签头解析与构造。
  *
- * 视频消息（typeId=9）：
- *   legacy:   byte0 = FrameType(4)|CodecId(4)，CodecId=7(AVC) 等
- *   enhanced: byte0 bit0..3 = 0x09（isExHeader 标记），byte0 bit4..7 = FrameType，
- *             byte1..4 = FourCC（'hvc1'/'av01'/'vp09'），byte5 = packet type，
- *             byte6.. 载荷。
+ * 视频（typeId=9）：
+ *   legacy:   byte0 = FrameType(4) | CodecId(4)，CodecId=7(AVC)
+ *   enhanced: byte0 = IsExHeader(1, 最高位) | FrameType(3) | PacketType(4)
+ *             byte1..4 = FourCC（'hvc1'/'avc1'/'av01'/'vp09'）
+ *             PacketType=1(CodedFrames) 且 FourCC 为 avc1/hvc1 时，后跟 SI24 composition time
+ *   PacketType: 0=SequenceStart 1=CodedFrames 2=SequenceEnd 3=CodedFramesX(无 CTS)
+ *               4=Metadata 5=MPEG2TSSequenceStart 6=Multitrack 7=ModEx
  *
- * 包类型（Enhanced Video PacketType）：
- *   0 = SequenceStart（编码配置记录，如 hvCC/av1C/dCoderConfig）
- *   1 = CodedFrames
- *   2 = CodedFramesX（无 CTS）
- *   3 = CodedContext
- *   4 = PostDecoderFormat
- *   5 = AltInfoReference
- *   ...
+ * 音频（typeId=8）：
+ *   legacy:   byte0 = SoundFormat(4) | rate/size/type，SoundFormat=10(AAC)
+ *   enhanced: byte0 = SoundFormat(4)=9(ExHeader) | AudioPacketType(4)；byte1..4 = FourCC
+ *   AudioPacketType: 0=SequenceStart 1=CodedFrames 2=SequenceEnd 4=MultichannelConfig
+ *                    5=Multitrack 7=ModEx
  *
- * 对于 CodedFrames(pktType=1)，后跟 3 字节 CTS；CodedFramesX 无 CTS。
- *
- * 音频（typeId=8）Enhanced：byte0=0x09 标记，1..3 FourCC('Opus'/'ac-3'等)，
- * byte4 = packet type(0 sequence start / 1 coded frames)，后跟载荷。
+ * （原实现把 byte0 低 4 位 == 9 当作扩展头、把 byte5 当作 PacketType，与规范不符，
+ *   导致 FFmpeg/OBS 推送的 HEVC 被当作 AVC 处理。）
  */
 class EnhancedRtmp {
 public:
@@ -41,9 +38,15 @@ public:
     static constexpr uint32_t kFourccOpus = 0x4f707573;  // 'Opus'
     static constexpr uint32_t kFourccMp4a = 0x6d703461;  // 'mp4a'
 
-    static bool isExHeader(uint8_t firstByte) {
-        return (firstByte & 0x0F) == 0x09;
-    }
+    static constexpr uint8_t kPktSequenceStart = 0;
+    static constexpr uint8_t kPktCodedFrames = 1;
+    static constexpr uint8_t kPktSequenceEnd = 2;
+    static constexpr uint8_t kPktCodedFramesX = 3;
+
+    /// 视频标签是否为扩展头
+    static bool isExVideo(uint8_t b0) { return (b0 & 0x80) != 0; }
+    /// 音频标签是否为扩展头
+    static bool isExAudio(uint8_t b0) { return (b0 >> 4) == 9; }
 
     static uint32_t readFourcc(const uint8_t* d) {
         return (static_cast<uint32_t>(d[0]) << 24) |
@@ -59,8 +62,8 @@ public:
         out[3] = fourcc & 0xFF;
     }
 
-    /// FrameType（高 4 位右移 4）：1=key,2=inter,3=disposable,4=generated,5=info
-    static int frameType(uint8_t firstByte) { return (firstByte >> 4) & 0x0F; }
+    /// FrameType：1=key,2=inter,3=disposable,4=generated,5=command（legacy/enhanced 通用）
+    static int frameType(uint8_t firstByte) { return (firstByte >> 4) & 0x07; }
 
     /**
      * 解析 enhanced 视频消息头。返回载荷起点偏移；失败返回 0。

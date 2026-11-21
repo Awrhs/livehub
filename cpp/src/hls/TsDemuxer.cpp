@@ -1,4 +1,5 @@
 #include "hls/TsDemuxer.hpp"
+#include "rtmp/EnhancedRtmp.hpp"
 
 #include "rtmp/AvcParser.hpp"
 #include "rtmp/HevcParser.hpp"
@@ -238,15 +239,9 @@ void TsDemuxer::flushVideoConfig(PidState& st, bool hevc) {
         pkt.enhancedPacketType = 0;  // sequence start
         pkt.isSequenceHeader = true;
         pkt.isKeyframe = true;
-        // Enhanced RTMP sequence header: first byte = FrameType(1=key)<<4 | 0x09
-        // （ex header 标记低 4 位必须为 0x09；注意不是 0x0C），后跟 'hvc1' + type0
-        pkt.data.push_back(0x19);
-        pkt.data.push_back('h');
-        pkt.data.push_back('v');
-        pkt.data.push_back('c');
-        pkt.data.push_back('1');
-        pkt.data.push_back(0x00);  // packet type 0
-        pkt.data.insert(pkt.data.end(), hvcc.begin(), hvcc.end());
+        pkt.data = EnhancedRtmp::buildVideoMessage(
+            EnhancedRtmp::kFourccHvc1, 1, EnhancedRtmp::kPktSequenceStart, 0,
+            hvcc.data(), hvcc.size());
         if (cb_) cb_(pkt);
         st.configSent = true;
     } else {
@@ -320,20 +315,16 @@ void TsDemuxer::emitVideo(PidState& st) {
         pkt.videoCodec = VideoCodec::kHevc;
         pkt.enhanced = true;
         pkt.enhancedPacketType = 1;  // coded frames
-        // FrameType: 1=keyframe, 2=inter；与低 4 位 0x09 组合成 ex header
-        pkt.data.push_back(keyframe ? 0x19 : 0x29);
-        pkt.data.push_back('h'); pkt.data.push_back('v'); pkt.data.push_back('c'); pkt.data.push_back('1');
-        pkt.data.push_back(1);  // packet type 1
-        // 3-byte signed composition time
-        int32_t cts = static_cast<int32_t>(cts90);
-        pkt.data.push_back((cts >> 16) & 0xFF);
-        pkt.data.push_back((cts >> 8) & 0xFF);
-        pkt.data.push_back(cts & 0xFF);
+        // FLV composition time 单位为毫秒（原实现直接写入 90kHz 差值）
+        pkt.data = EnhancedRtmp::buildVideoMessage(
+            EnhancedRtmp::kFourccHvc1, keyframe ? 1 : 2,
+            EnhancedRtmp::kPktCodedFrames, static_cast<int32_t>(cts90 / 90),
+            nullptr, 0);
     } else {
         pkt.videoCodec = VideoCodec::kH264;
         pkt.data.push_back(keyframe ? 0x17 : 0x27);
         pkt.data.push_back(0x01);  // AVCPacketType NALU
-        int32_t cts = static_cast<int32_t>(cts90);
+        int32_t cts = static_cast<int32_t>(cts90 / 90);  // 毫秒
         pkt.data.push_back((cts >> 16) & 0xFF);
         pkt.data.push_back((cts >> 8) & 0xFF);
         pkt.data.push_back(cts & 0xFF);

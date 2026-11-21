@@ -69,7 +69,7 @@ void RtmpToHls::onVideo(const MediaPacket& pkt) {
         if (vi.codec == VideoCodec::kHevc) {
             videoCodec_ = VideoCodec::kHevc;
             if (hls_) hls_->setVideoStreamType(kStreamTypeHevc);
-            if (vi.packetType == 0 || vi.packetType == 3) {
+            if (vi.packetType == EnhancedRtmp::kPktSequenceStart) {
                 // HEVCDecoderConfigurationRecord
                 std::vector<uint8_t> vps, sps, pps;
                 if (HevcParser::extractConfig(vi.payload, vi.payloadLen, vps,
@@ -82,7 +82,9 @@ void RtmpToHls::onVideo(const MediaPacket& pkt) {
                 }
                 return;
             }
-            if (vi.packetType != 1 && vi.packetType != 2) return;
+            if (vi.packetType != EnhancedRtmp::kPktCodedFrames &&
+                vi.packetType != EnhancedRtmp::kPktCodedFramesX)
+                return;
             if (vi.payloadLen == 0) return;
             std::vector<uint8_t> nalus =
                 HevcParser::hvccToAnnexB(vi.payload, vi.payloadLen, 3);

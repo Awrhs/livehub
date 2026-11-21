@@ -1,3 +1,5 @@
+#include "rtmp/MediaStream.hpp"
+#include "rtmp/EnhancedRtmp.hpp"
 #include "rtmp/AacParser.hpp"
 #include "rtmp/AvcParser.hpp"
 #include "rtmp/HevcParser.hpp"
@@ -150,4 +152,59 @@ TEST(avc_avcC_roundtrip) {
     expPps.insert(expPps.end(), pps.begin(), pps.end());
     ASSERT_EQ(spsOut, expSps);
     ASSERT_EQ(ppsOut, expPps);
+}
+
+// Enhanced RTMP：按规范字节布局（与 FFmpeg flvenc 输出一致）
+TEST(enhanced_rtmp_video_parse_spec_layout) {
+    // 关键帧 + SequenceStart：0x80 | (1<<4) | 0 = 0x90，'hvc1'，后接 hvcC
+    const uint8_t seq[] = {0x90, 'h', 'v', 'c', '1', 0x01, 0x02, 0x03};
+    EnhancedRtmp::VideoInfo vi;
+    ASSERT_TRUE(EnhancedRtmp::isExVideo(seq[0]));
+    ASSERT_TRUE(EnhancedRtmp::parseVideo(seq, sizeof(seq), vi));
+    ASSERT_EQ(vi.frameType, 1);
+    ASSERT_EQ(vi.packetType, uint8_t(EnhancedRtmp::kPktSequenceStart));
+    ASSERT_TRUE(vi.codec == VideoCodec::kHevc);
+    ASSERT_EQ(vi.payloadLen, size_t(3));
+    ASSERT_EQ(vi.payload[0], uint8_t(0x01));
+
+    // 帧间 + CodedFrames：0x80 | (2<<4) | 1 = 0xA1，cts = -2
+    const uint8_t cf[] = {0xA1, 'h', 'v', 'c', '1', 0xFF, 0xFF, 0xFE, 0xAA};
+    ASSERT_TRUE(EnhancedRtmp::parseVideo(cf, sizeof(cf), vi));
+    ASSERT_EQ(vi.frameType, 2);
+    ASSERT_EQ(vi.cts, -2);
+    ASSERT_EQ(vi.payloadLen, size_t(1));
+    ASSERT_EQ(vi.payload[0], uint8_t(0xAA));
+
+    // 关键帧 + CodedFramesX（无 CTS）：0x93
+    const uint8_t cfx[] = {0x93, 'h', 'v', 'c', '1', 0xBB, 0xCC};
+    ASSERT_TRUE(EnhancedRtmp::parseVideo(cfx, sizeof(cfx), vi));
+    ASSERT_EQ(vi.packetType, uint8_t(EnhancedRtmp::kPktCodedFramesX));
+    ASSERT_EQ(vi.cts, 0);
+    ASSERT_EQ(vi.payloadLen, size_t(2));
+
+    // legacy AVC 不是扩展头
+    ASSERT_FALSE(EnhancedRtmp::isExVideo(0x17));
+    ASSERT_FALSE(EnhancedRtmp::isExVideo(0x27));
+}
+
+TEST(enhanced_rtmp_build_roundtrip) {
+    const uint8_t data[] = {9, 8, 7};
+    auto msg = EnhancedRtmp::buildVideoMessage(EnhancedRtmp::kFourccHvc1, 1,
+                                               EnhancedRtmp::kPktCodedFrames, 40,
+                                               data, sizeof(data));
+    ASSERT_EQ(msg[0], uint8_t(0x91));
+    EnhancedRtmp::VideoInfo vi;
+    ASSERT_TRUE(EnhancedRtmp::parseVideo(msg.data(), msg.size(), vi));
+    ASSERT_EQ(vi.cts, 40);
+    ASSERT_EQ(vi.payloadLen, size_t(3));
+    ASSERT_EQ(vi.payload[2], uint8_t(7));
+
+    auto am = EnhancedRtmp::buildAudioMessage(EnhancedRtmp::kFourccOpus, 1, data, 3);
+    ASSERT_EQ(am[0], uint8_t(0x91));
+    EnhancedRtmp::AudioInfo ai;
+    ASSERT_TRUE(EnhancedRtmp::parseAudio(am.data(), am.size(), ai));
+    ASSERT_EQ(ai.packetType, uint8_t(1));
+    ASSERT_EQ(ai.payloadLen, size_t(3));
+    // legacy AAC（0xAF）不是扩展头
+    ASSERT_FALSE(EnhancedRtmp::isExAudio(0xAF));
 }

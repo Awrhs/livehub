@@ -321,7 +321,7 @@ void RtmpConnection::handleAudio(const RtmpMessage& msg) {
     pkt.data = msg.payload;
     pkt.isKeyframe = true;
 
-    if (EnhancedRtmp::isExHeader(d[0]) && n >= 6) {
+    if (EnhancedRtmp::isExAudio(d[0])) {
         EnhancedRtmp::AudioInfo ai;
         if (EnhancedRtmp::parseAudio(d, n, ai)) {
             pkt.enhanced = true;
@@ -350,14 +350,13 @@ void RtmpConnection::handleVideo(const RtmpMessage& msg) {
     pkt.timestamp = msg.timestamp;
     pkt.data = msg.payload;
 
-    if (EnhancedRtmp::isExHeader(d[0]) && n >= 6) {
+    if (EnhancedRtmp::isExVideo(d[0])) {
         EnhancedRtmp::VideoInfo vi;
         if (EnhancedRtmp::parseVideo(d, n, vi)) {
             pkt.enhanced = true;
             pkt.videoCodec = vi.codec;
             pkt.enhancedPacketType = vi.packetType;
-            pkt.isSequenceHeader =
-                (vi.packetType == 0 || vi.packetType == 3);
+            pkt.isSequenceHeader = (vi.packetType == EnhancedRtmp::kPktSequenceStart);
             pkt.isKeyframe = vi.frameType == 1;
             // enhanced 的 packetType 1 = coded frames，关键帧由 frameType 决定
             if (pkt.videoCodec == VideoCodec::kHevc && !pkt.isSequenceHeader) {
