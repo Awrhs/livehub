@@ -85,11 +85,13 @@ void WebRtcIngest::sendPli() {
     uint32_t media = remoteVideoSsrc_.load();
     if (!dtlsReady_ || !srtpSend_ || !ice_ || media == 0) return;
     // RFC 4585 6.3.1 PLI：V=2,P=0,FMT=1 | PT=206(PSFB) | length=2 | sender SSRC | media SSRC
-    uint8_t buf[64] = {0x81, 206, 0x00, 0x02, 0, 0, 0, 1,
+    // 缓冲区须容纳 SRTCP 尾部（SRTP_MAX_TRAILER_LEN = 认证标签 + 最大 MKI，约 144 字节）
+    uint8_t buf[256] = {0x81, 206, 0x00, 0x02, 0, 0, 0, 1,
                        static_cast<uint8_t>(media >> 24), static_cast<uint8_t>(media >> 16),
                        static_cast<uint8_t>(media >> 8), static_cast<uint8_t>(media)};
     int n = srtpSend_->protectRtcp(buf, 12, sizeof(buf));
     if (n > 0) ice_->send(buf, static_cast<size_t>(n));
+    else LOG_WARN("WebRtcIngest: SRTCP protect failed for PLI");
 }
 
 std::string WebRtcIngest::candidate() const {
