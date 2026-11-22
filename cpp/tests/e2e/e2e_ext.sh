@@ -138,6 +138,31 @@ else
     echo "  [INFO] 未安装 aiortc，跳过"
 fi
 
+echo "== 源站-边缘集群（边缘按需回源）"
+EHTTP=58080; ERTMP=51935
+cat >"$WORK/edge.conf" <<EOF2
+HTTP_PORT=$EHTTP
+RTMP_PORT=$ERTMP
+SRT_PORT=59535
+IO_THREADS=2
+HLS_OUTPUT_DIR=$WORK/edge_hls
+JWT_SECRET=edge-secret-edge-secret-edge-secret
+ENABLE_RATE_LIMIT=false
+ORIGIN_URL=http://127.0.0.1:$HTTP
+[vhost:__default__]
+EOF2
+( mkdir -p "$WORK/edge" && cd "$WORK/edge" && exec "$BIN" "$WORK/edge.conf" ) >"$WORK/edge.log" 2>&1 &
+EDGE_PID=$!
+for _ in $(seq 1 50); do curl -sf --max-time 2 "http://127.0.0.1:$EHTTP/api/health" >/dev/null && break; sleep 0.2; done
+probe edge_flv "http://127.0.0.1:$EHTTP/live/avc.flv" h264 3 50
+probe edge_rtmp "rtmp://127.0.0.1:$ERTMP/live/avc" h264 3 50
+probe edge_hls "http://127.0.0.1:$EHTTP/live/avc.m3u8" h264 3 50
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$EHTTP/live/nosuch.flv")
+[ "$code" = 404 ] && pass "边缘回源不存在的流返回 404" || fail "边缘回源不存在的流返回 $code"
+kill -0 "$EDGE_PID" 2>/dev/null && pass "边缘进程存活" || fail "边缘进程已退出"
+grep -E 'WARN|ERROR' "$WORK/edge.log" | sed -E 's/^[0-9-]+ [0-9:.]+ //' | sort | uniq -c | sort -rn | head -5 | sed 's/^/    edge: /'
+kill "$EDGE_PID" 2>/dev/null
+
 kill -0 "$SERVER_PID" 2>/dev/null && pass "进程存活" || fail "进程已退出"
 echo
 echo "== 服务器日志（WARN/ERROR 摘要）"
