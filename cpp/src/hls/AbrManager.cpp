@@ -26,8 +26,9 @@ void AbrManager::enable(const std::string& streamKey,
 
     // 为每个档位提交一个转码任务，输出回灌到 <key>_<profile>
     for (const auto& p : profiles) {
-        std::string outPrefix =
-            rtmpOutputHost_ + "/live/" + variantKey(streamKey, p.name);
+        // 转码任务会在输出前缀后追加 "_<档位>"，这里只给流名
+        //（原实现前缀已含档位，实际输出为 <key>_<档位>_<档位>，与 master playlist 不一致）
+        std::string outPrefix = rtmpOutputHost_ + "/live/" + streamKey;
         std::string id = tc_->submit(inputUrl, outPrefix, {p}, true);
         entry.taskIds.push_back(id);
         LOG_INFO("ABR: submitted %s for %s task=%s out=%s",

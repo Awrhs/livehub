@@ -138,6 +138,21 @@ else
     echo "  [INFO] 未安装 aiortc，跳过"
 fi
 
+echo "== 转码 / ABR（外部 ffmpeg 进程）"
+curl -s --max-time 5 -X POST -H "Authorization: Bearer $ADM" \
+    "http://127.0.0.1:$HTTP/api/abr/avc?profiles=480p" >"$WORK/abr.json"
+echo "  [INFO] abr: $(head -c 200 "$WORK/abr.json")"
+sleep 12
+probe abr_480p_flv "http://127.0.0.1:$HTTP/live/avc_480p.flv" h264 3 40
+probe abr_480p_hls "http://127.0.0.1:$HTTP/live/avc_480p.m3u8" h264 3 40
+curl -s --max-time 5 "http://127.0.0.1:$HTTP/live/avc/master.m3u8" >"$WORK/master.m3u8"
+grep -q 'EXT-X-STREAM-INF' "$WORK/master.m3u8" && grep -q 'avc_480p' "$WORK/master.m3u8" \
+    && pass "ABR master playlist 列出变体" \
+    || fail "ABR master playlist 异常: $(head -c 200 "$WORK/master.m3u8" | tr '\n' ' ')"
+res=$(timeout 20 ffprobe -v error -select_streams v:0 -show_entries stream=height -of csv=p=0 \
+      "http://127.0.0.1:$HTTP/live/avc_480p.flv" 2>/dev/null | head -1)
+[ "$res" = 480 ] && pass "转码输出分辨率 480p" || fail "转码输出分辨率为 ${res:-未知}"
+
 echo "== 源站-边缘集群（边缘按需回源）"
 EHTTP=58080; ERTMP=51935
 cat >"$WORK/edge.conf" <<EOF2
