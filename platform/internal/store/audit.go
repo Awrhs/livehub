@@ -51,13 +51,13 @@ func (s *Store) ListAudit(ctx context.Context, limit, offset int) ([]AuditEntry,
 }
 
 type Invite struct {
-	Code      string `json:"code"`
-	CreatedBy *int64 `json:"created_by"`
-	UsedBy    *int64 `json:"used_by"`
+	Code       string `json:"code"`
+	CreatedBy  *int64 `json:"created_by"`
+	UsedBy     *int64 `json:"used_by"`
 	UsedByName string `json:"used_by_name"`
-	CreatedAt int64  `json:"created_at"`
-	ExpiresAt *int64 `json:"expires_at"`
-	UsedAt    *int64 `json:"used_at"`
+	CreatedAt  int64  `json:"created_at"`
+	ExpiresAt  *int64 `json:"expires_at"`
+	UsedAt     *int64 `json:"used_at"`
 }
 
 func (s *Store) CreateInvite(ctx context.Context, by int64, expiresAt *int64) (*Invite, error) {

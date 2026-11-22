@@ -139,7 +139,7 @@ func (c *Config) Embedded() bool { return c.MediaBin != "" }
 // HasMedia 是否配置了媒体服务器（未配置时平台仍可运行，便于单元测试与前端开发）。
 func (c *Config) HasMedia() bool { return c.MediaURL != "" }
 
-func (c *Config) DBPath() string     { return filepath.Join(c.DataDir, "livehub.db") }
-func (c *Config) VODDir() string     { return filepath.Join(c.DataDir, "vods") }
-func (c *Config) ThumbDir() string   { return filepath.Join(c.DataDir, "thumbs") }
+func (c *Config) DBPath() string       { return filepath.Join(c.DataDir, "livehub.db") }
+func (c *Config) VODDir() string       { return filepath.Join(c.DataDir, "vods") }
+func (c *Config) ThumbDir() string     { return filepath.Join(c.DataDir, "thumbs") }
 func (c *Config) MediaWorkDir() string { return filepath.Join(c.DataDir, "media") }

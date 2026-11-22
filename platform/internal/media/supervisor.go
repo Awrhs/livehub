@@ -16,16 +16,16 @@ import (
 
 // ServerConfig 内嵌模式下生成的媒体服务器配置。
 type ServerConfig struct {
-	WorkDir      string
-	HTTPPort     int
-	RTMPPort     int
-	SRTPort      int // 0 = 关闭
-	AdminToken   string
-	JWTSecret    string
-	HookBaseURL  string // 平台地址，如 http://127.0.0.1:8000
-	HookSecret   string
-	DVRDir       string
-	CandidateIP  string
+	WorkDir     string
+	HTTPPort    int
+	RTMPPort    int
+	SRTPort     int // 0 = 关闭
+	AdminToken  string
+	JWTSecret   string
+	HookBaseURL string // 平台地址，如 http://127.0.0.1:8000
+	HookSecret  string
+	DVRDir      string
+	CandidateIP string
 }
 
 // Render 生成 streaming.conf 内容。
@@ -76,9 +76,9 @@ func (c ServerConfig) Render() string {
 
 // Supervisor 拉起并守护媒体服务器子进程：异常退出后按退避重启。
 type Supervisor struct {
-	Bin     string
-	Config  ServerConfig
-	Log     *slog.Logger
+	Bin    string
+	Config ServerConfig
+	Log    *slog.Logger
 	// OnRestart 子进程（重新）启动后回调：此前的推流都已断开，平台需重置直播状态
 	OnRestart func()
 }
