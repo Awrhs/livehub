@@ -44,10 +44,10 @@ type Config struct {
 	WebRTCCandidateIP string
 	WebRTCPortMin     int
 	WebRTCPortMax     int
-	TrustProxy    bool   // 信任 X-Forwarded-For / X-Forwarded-Proto（部署在反向代理后）
-	SecureCookies string // auto | true | false
-	BcryptCost    int
-	LogLevel      string
+	TrustProxy        bool   // 信任 X-Forwarded-For / X-Forwarded-Proto（部署在反向代理后）
+	SecureCookies     string // auto | true | false
+	BcryptCost        int
+	LogLevel          string
 }
 
 func env(key, def string) string {
