@@ -68,7 +68,7 @@ WHEP 音频（AAC→Opus）、WHEP 空闲会话回收、`WEBRTC_PORT_MIN/MAX`。
 - [x] 多节点：边缘媒体节点分发播放流量
 - [x] 防滥用：登录/注册限速、聊天慢速模式与敏感词、邀请码
 - [x] 部署文档、备份恢复、升级说明
-- [ ] 发布 v1.0.0
+- [x] 发布 v1.0.0（2026-11-22：GitHub Release + ghcr.io/awrhs/livehub:1.0.0，amd64 + arm64）
 
 ## 待用户确认的事项
 
