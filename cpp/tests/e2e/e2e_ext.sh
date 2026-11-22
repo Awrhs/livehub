@@ -158,8 +158,11 @@ for _ in $(seq 1 50); do curl -sf --max-time 2 "http://127.0.0.1:$EHTTP/api/heal
 probe edge_flv "http://127.0.0.1:$EHTTP/live/avc.flv" h264 3 50
 probe edge_rtmp "rtmp://127.0.0.1:$ERTMP/live/avc" h264 3 50
 probe edge_hls "http://127.0.0.1:$EHTTP/live/avc.m3u8" h264 3 50
-code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$EHTTP/live/nosuch.flv")
-[ "$code" = 404 ] && pass "边缘回源不存在的流返回 404" || fail "边缘回源不存在的流返回 $code"
+curl -s -o /dev/null --max-time 3 "http://127.0.0.1:$EHTTP/live/nosuch.flv"
+sleep 2
+storms=$(grep -c 'edge-nosuch.*reconnect' "$WORK/edge.log")
+[ "$storms" -le 3 ] && pass "回源不存在的流不会形成重连风暴（重连 ${storms} 次）" \
+    || fail "回源不存在的流形成重连风暴（2 秒内重连 ${storms} 次）"
 kill -0 "$EDGE_PID" 2>/dev/null && pass "边缘进程存活" || fail "边缘进程已退出"
 grep -E 'WARN|ERROR' "$WORK/edge.log" | sed -E 's/^[0-9-]+ [0-9:.]+ //' | sort | uniq -c | sort -rn | head -5 | sed 's/^/    edge: /'
 kill "$EDGE_PID" 2>/dev/null

@@ -1,4 +1,5 @@
 #include "protocol/FlvDemuxer.hpp"
+#include "rtmp/EnhancedRtmp.hpp"
 
 #include <cstring>
 
@@ -7,26 +8,13 @@ namespace streaming {
 void FlvDemuxer::reset() {
     buf_.retrieveAll();
     headerParsed_ = false;
-    headersSkipped_ = false;
 }
 
 void FlvDemuxer::feed(const uint8_t* data, size_t len) {
+    // 输入为纯 FLV 字节流（HTTP 头由调用方处理）。
+    // 原实现在此再次“跳过 HTTP 头”：在已剥离头部的二进制 FLV 中搜索 \r\n\r\n，
+    // 丢弃之前的全部数据，回源拉流完全无法解析。
     buf_.append(reinterpret_cast<const char*>(data), len);
-
-    // 若是 HTTP 流式响应，先跳过响应头
-    if (!headersSkipped_) {
-        const char* p = buf_.peek();
-        size_t n = buf_.readableBytes();
-        static const char kSep[] = "\r\n\r\n";
-        for (size_t i = 0; i + 4 <= n; ++i) {
-            if (std::memcmp(p + i, kSep, 4) == 0) {
-                buf_.retrieve(i + 4);
-                headersSkipped_ = true;
-                break;
-            }
-        }
-        if (!headersSkipped_) return;
-    }
 
     while (buf_.readableBytes() > 0) {
         if (!headerParsed_) {
@@ -74,13 +62,26 @@ bool FlvDemuxer::parseTag() {
         pkt.data.resize(dataSize);
         std::memcpy(pkt.data.data(), h + 11, dataSize);
         if (pkt.type == MediaPacket::kVideo && dataSize >= 1) {
-            pkt.isKeyframe = (pkt.data[0] >> 4) == 0x01;
-            pkt.isSequenceHeader = (pkt.data[0] & 0x0F) == 7 &&
-                                   dataSize >= 2 && pkt.data[1] == 0;
+            uint8_t b0 = pkt.data[0];
+            pkt.isKeyframe = EnhancedRtmp::frameType(b0) == 1;
+            if (EnhancedRtmp::isExVideo(b0)) {  // Enhanced RTMP（HEVC 等）
+                EnhancedRtmp::VideoInfo vi;
+                if (EnhancedRtmp::parseVideo(pkt.data.data(), dataSize, vi)) {
+                    pkt.enhanced = true;
+                    pkt.videoCodec = vi.codec;
+                    pkt.enhancedPacketType = vi.packetType;
+                    pkt.isSequenceHeader = vi.packetType == EnhancedRtmp::kPktSequenceStart;
+                }
+            } else if ((b0 & 0x0F) == 7) {
+                pkt.videoCodec = VideoCodec::kH264;
+                pkt.isSequenceHeader = dataSize >= 2 && pkt.data[1] == 0;
+            }
         } else if (pkt.type == MediaPacket::kAudio && dataSize >= 2) {
-            pkt.isSequenceHeader = (pkt.data[0] == 0xAF ||
-                                    pkt.data[0] == 0xAE) &&
-                                   pkt.data[1] == 0;
+            if ((pkt.data[0] >> 4) == 10) {
+                pkt.audioCodec = AudioCodec::kAac;
+                pkt.isSequenceHeader = pkt.data[1] == 0;
+            }
+            pkt.isKeyframe = true;
         }
         if (onTag_) onTag_(pkt);
     }

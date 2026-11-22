@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/Timestamp.hpp"
+
 #include "core/NonCopyable.hpp"
 #include "net/Connector.hpp"
 #include "net/TcpConnection.hpp"
@@ -72,6 +74,11 @@ private:
     TcpConnection::WriteCompleteCallback writeCompleteCallback_;
 
     std::atomic<bool> retry_;
+    Timestamp connectedAt_;
+    // 延迟重连任务的存活标志：客户端析构/断开后置 false，避免定时器回调访问已销毁对象或复活连接
+    std::shared_ptr<std::atomic<bool>> reconnectAllowed_ =
+        std::make_shared<std::atomic<bool>>(true);
+    double reconnectDelay_ = 0.5;  // 秒，指数退避
     std::atomic<bool> connect_;
     int nextConnId_;
 };

@@ -1,4 +1,6 @@
 #include "net/TcpClient.hpp"
+
+#include <algorithm>
 #include "net/EventLoop.hpp"
 #include "net/Socket.hpp"
 #include "core/Logger.hpp"
@@ -24,6 +26,7 @@ TcpClient::TcpClient(EventLoop* loop, const std::string& ip, uint16_t port,
 }
 
 TcpClient::~TcpClient() {
+    reconnectAllowed_->store(false);
     TcpConnectionPtr conn;
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -40,12 +43,14 @@ TcpClient::~TcpClient() {
 }
 
 void TcpClient::connect() {
+    reconnectAllowed_->store(true);
     connect_ = true;
     connector_->start();
 }
 
 void TcpClient::disconnect() {
     connect_ = false;
+    reconnectAllowed_->store(false);
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (connection_) {
@@ -56,10 +61,12 @@ void TcpClient::disconnect() {
 
 void TcpClient::stop() {
     connect_ = false;
+    reconnectAllowed_->store(false);
     connector_->stop();
 }
 
 void TcpClient::newConnection(int sockfd) {
+    connectedAt_ = Timestamp::now();
     loop_->assertInLoopThread();
 
     struct sockaddr_in peer{};
@@ -104,8 +111,19 @@ void TcpClient::removeConnection(const TcpConnectionPtr& conn) {
     loop_->queueInLoop([conn] { conn->connectDestroyed(); });
 
     if (retry_ && connect_) {
-        LOG_INFO("TcpClient [%s] reconnecting...", name_.c_str());
-        connector_->restart();
+        // 指数退避重连（原实现立即重连：对端接受后马上关闭时形成无间隔的连接风暴）。
+        // 连接存活超过 10 秒视为正常，退避重置。
+        double lived = Timestamp::now() - connectedAt_;
+        if (lived > 10.0) reconnectDelay_ = 0.5;
+        double delay = reconnectDelay_;
+        reconnectDelay_ = std::min(reconnectDelay_ * 2, 30.0);
+        LOG_INFO("TcpClient [%s] reconnecting in %.1fs", name_.c_str(), delay);
+        std::weak_ptr<Connector> wc = connector_;
+        auto allowed = reconnectAllowed_;
+        loop_->runAfter(delay, [wc, allowed] {
+            auto c = wc.lock();
+            if (c && allowed->load()) c->restart();
+        });
     }
 }
 

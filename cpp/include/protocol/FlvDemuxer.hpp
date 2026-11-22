@@ -35,7 +35,6 @@ private:
     TagCallback onTag_;
     Buffer buf_;
     bool headerParsed_ = false;
-    bool headersSkipped_ = false;  // 是否已跳过 HTTP 响应头
 };
 
 }  // namespace streaming

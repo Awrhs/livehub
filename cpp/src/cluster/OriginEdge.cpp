@@ -16,6 +16,7 @@ struct OriginEdge::PullSession
     std::shared_ptr<MediaStream> stream;
     std::unique_ptr<TcpClient> client;
     FlvDemuxer demuxer;
+    bool failed_ = false;
     std::atomic<int> refCount{0};
     // HTTP 响应头解析状态
     bool headerParsed_ = false;
@@ -112,8 +113,19 @@ struct OriginEdge::PullSession
                 break;
             }
         }
-        if (end == 0) return;
+        if (end == 0) {
+            if (len > 16 * 1024) failed("origin response header too large");
+            return;
+        }
         std::string header(data, end);
+        // 必须检查状态码：源站返回 404 等时停止回源（原实现把错误响应体当作 FLV 解析，
+        // 且断开后无间隔重连，形成对源站的连接风暴）
+        if (header.compare(0, 12, "HTTP/1.1 200") != 0 &&
+            header.compare(0, 12, "HTTP/1.0 200") != 0) {
+            failed("origin returned " + header.substr(0, header.find('\r')));
+            buf.retrieveAll();
+            return;
+        }
         if (header.find("Transfer-Encoding: chunked") != std::string::npos ||
             header.find("transfer-encoding: chunked") != std::string::npos) {
             chunked_ = true;
@@ -139,8 +151,21 @@ struct OriginEdge::PullSession
             size_t semicolon = sizeStr.find(';');
             if (semicolon != std::string::npos)
                 sizeStr = sizeStr.substr(0, semicolon);
-            size_t chunkSize =
-                static_cast<size_t>(std::stoul(sizeStr, nullptr, 16));
+            // 安全解析十六进制长度（std::stoul 遇畸形输入抛异常）
+            size_t chunkSize = 0;
+            bool okHex = !sizeStr.empty() && sizeStr.size() <= 8;
+            for (char c : sizeStr) {
+                int v = (c >= '0' && c <= '9') ? c - '0'
+                      : (c >= 'a' && c <= 'f') ? c - 'a' + 10
+                      : (c >= 'A' && c <= 'F') ? c - 'A' + 10 : -1;
+                if (v < 0) { okHex = false; break; }
+                chunkSize = chunkSize * 16 + static_cast<size_t>(v);
+            }
+            if (!okHex) {
+                failed("malformed chunked encoding from origin");
+                buf.retrieveAll();
+                return;
+            }
             if (chunkSize == 0) {
                 buf.retrieveAll();
                 return;  // 结束
@@ -151,6 +176,19 @@ struct OriginEdge::PullSession
             buf.retrieve(lineEnd + chunkSize + 2);
         }
     }
+
+    // 回源失败：停止重连，标记流无发布者（观众随空闲超时/流结束断开）
+    void failed(const std::string& why) {
+        if (failed_) return;
+        failed_ = true;
+        LOG_WARN("OriginEdge: pull %s failed: %s", key.c_str(), why.c_str());
+        if (client) {
+            client->enableRetry(false);
+            client->disconnect();
+        }
+        stream->setHasPublisher(false);
+    }
+    bool isFailed() const { return failed_; }
 
     void acquire() {
         refCount.fetch_add(1);
@@ -189,6 +227,10 @@ std::shared_ptr<MediaStream> OriginEdge::getOrPull(
     const std::string& key) {
     std::lock_guard<std::mutex> lk(mu_);
     auto it = sessions_.find(key);
+    if (it != sessions_.end() && it->second->isFailed()) {
+        sessions_.erase(it);  // 上次回源失败：重新尝试
+        it = sessions_.end();
+    }
     if (it != sessions_.end()) {
         it->second->acquire();
         return it->second->stream;
