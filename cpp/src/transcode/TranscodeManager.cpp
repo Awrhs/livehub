@@ -263,10 +263,16 @@ void TranscodeManager::schedulerLoop() {
     }
 }
 
+namespace {
+constexpr bool kLibavOutputWired = false;
+}  // namespace
+
 bool TranscodeManager::runTask(const std::shared_ptr<TranscodeTask>& task) {
     LOG_INFO("TranscodeManager: running task %s", task->id.c_str());
 
-    if (task->useLibav) {
+    // 进程内 libav 转码的输出从未接入分发链（输出回调为空），且无 libav 构建时直接“完成”。
+    // 在接通之前统一使用外部 ffmpeg 进程。
+    if (task->useLibav && kLibavOutputWired) {
         task->transcoder = std::make_shared<Transcoder>(
             task->inputUrl, task->profiles);
         task->transcoder->setOutputCallback(

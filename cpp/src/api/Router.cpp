@@ -31,16 +31,30 @@ bool Router::matchPath(const std::string& pattern, const std::string& path,
 }
 
 bool Router::dispatch(HttpRequest& req, HttpResponse& resp) {
+    // 选择“最具体”的匹配：字面段越多越优先，同分按注册顺序。
+    //（原实现取第一个匹配：/live/:stream/:segment 会遮蔽后注册的 /live/:stream/master.m3u8）
+    const Route* best = nullptr;
+    int bestScore = -1;
+    std::map<std::string, std::string> bestParams;
     for (const auto& route : routes_) {
         if (route.method != req.method()) continue;
         std::map<std::string, std::string> params;
-        if (matchPath(route.path, req.path(), params)) {
-            for (const auto& kv : params) {
-                req.params_[kv.first] = kv.second;
-            }
-            route.handler(req, resp);
-            return true;
+        if (!matchPath(route.path, req.path(), params)) continue;
+        int score = 0;
+        std::istringstream ps(route.path);
+        std::string seg;
+        while (std::getline(ps, seg, '/'))
+            if (!seg.empty() && seg[0] != ':' && seg != "*") ++score;
+        if (score > bestScore) {
+            bestScore = score;
+            best = &route;
+            bestParams = std::move(params);
         }
+    }
+    if (best) {
+        for (const auto& kv : bestParams) req.params_[kv.first] = kv.second;
+        best->handler(req, resp);
+        return true;
     }
 
     if (notFound_) {
