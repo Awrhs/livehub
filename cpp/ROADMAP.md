@@ -31,7 +31,8 @@
 | SRT（libsrt）：推流 → FLV/HLS、RTMP 推流 → SRT 拉流、鉴权、拒绝抢占 | ✅ | 扩展 E2E |
 | webhook（on_publish/on_play/on_unpublish 通知、code≠0 拒绝、慢回调不阻塞 IO 线程） | ✅ | 运维 E2E |
 | 限流（API 429、不误伤播放）、连接数上限（全局/单 IP） | ✅ | 运维 E2E |
-| WebRTC / 转码 / 集群 | ⚠️ 编译通过，未经验证 | — |
+| WebRTC：WHIP 推流 → FLV/HLS、WHEP 拉流（与 aiortc 第三方实现互通，仅视频 H.264） | ✅ | 扩展 E2E |
+| 转码 / ABR / 集群 | ⚠️ 编译通过，未经验证 | — |
 
 ### 第一轮已修复的致命问题（节选）
 
@@ -108,7 +109,14 @@
 
 - [x] Enhanced RTMP / H.265：按规范重写解析（原实现格式与规范不符），RTMP/FLV/HLS 拉流 E2E 通过
 - [x] SRT：改用 libsrt 重写（手写协议栈无法握手；TsDemuxer 有 6 处致命错误，从未运行过）
-- [ ] WebRTC（WHIP/WHEP）：评估改用 libdatachannel 等成熟库
+- [x] WebRTC（WHIP/WHEP）：逐层修复后与 aiortc 互通。修复链条：SDP 未按 offer 对应 m 行 →
+      /whip /whep 被当作管理接口 → STUN 完整性校验多算 MI 属性头 → Binding Response 在签名后
+      才写头部 → FINGERPRINT CRC 覆盖自身属性头 → DTLS 未设 MTU、BIO pair 截断 record、RSA 证书
+      no shared cipher、多指纹取错算法 → SRTP 代码从未编译过（API 全错）、密钥方向/布局错误 →
+      RTP/RTCP 复用判断把动态 PT 当 RTCP → NALU 未组帧、序列头未保存 → WHEP 提前订阅、
+      缺 SPS/PPS → PLI 缓冲区不足从未发出
+- [ ] WebRTC 音频：源为 AAC、WebRTC 需 Opus，需转码（当前音频 m 行以 inactive 接受）
+- [ ] WebRTC：NACK 重传、TWCC/REMB 拥塞控制、DELETE 结束会话（WHIP/WHEP 规范）
 - [x] RTSP 拉流 E2E
 - [x] DVR / fMP4 录制产物可播放（修复 trun 标志位、非关键帧起录、音视频基准不一致）
 - [ ] 转码 / ABR
