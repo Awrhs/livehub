@@ -98,7 +98,7 @@ jobs:
       - name: 安装依赖
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake g++ ccache ffmpeg jq libssl-dev libsrt-openssl-dev libsrtp2-dev
+          sudo apt-get install -y cmake g++ ccache ffmpeg jq pkg-config libssl-dev libsrt-openssl-dev libsrtp2-dev libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev
       - uses: actions/cache@v4
         with:
           path: .ccache

@@ -42,6 +42,10 @@ public:
 
     std::string localFingerprint() const { return localFingerprint_; }
 
+    /// 清理空闲会话（超过 timeoutMs 未收到对端数据，如浏览器已关闭）；返回清理数
+    size_t sweepIdle(int64_t timeoutMs = 30000);
+    size_t sessionCount() const;
+
 private:
     uint16_t allocPort();
 

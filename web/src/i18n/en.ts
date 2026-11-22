@@ -71,6 +71,7 @@ const en: Dict = {
   'player.mode': 'Mode',
   'player.modeHls': 'Standard (HLS)',
   'player.modeFlv': 'Low latency (FLV)',
+  'player.modeWebrtc': 'Ultra-low latency (WebRTC)',
   'player.quality': 'Quality',
   'player.auto': 'Auto',
   'player.source': 'Source',

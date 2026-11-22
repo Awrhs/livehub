@@ -43,7 +43,10 @@ WebRtcTransport::WebRtcTransport(EventLoop* loop, uint16_t udpPort,
       pwd_(std::move(pwd)),
       localFingerprint_(std::move(localFingerprint)),
       stream_(std::move(stream)),
-      ssrc_(randomSsrc()) {
+      ssrc_(randomSsrc()),
+      audioSsrc_(randomSsrc()),
+      audioSeq_(static_cast<uint16_t>(randomSsrc())),
+      audioTsBase_(randomSsrc()) {
     ice_ = std::make_unique<IceAgent>(loop, udpPort);
     ice_->setPassword(pwd_);
     ice_->setOnData(
@@ -91,6 +94,10 @@ void WebRtcTransport::subscribeMedia() {
     // 预取序列头中的 SPS/PPS，关键帧前内联发送
     auto sh = stream->videoSequenceHeader();
     if (!sh.empty()) cacheParameterSets(sh);
+    if (opus_) {
+        auto ash = stream->audioSequenceHeader();
+        if (ash.size() > 2 && (ash[0] >> 4) == 10) opus_->init(ash.data() + 2, ash.size() - 2);
+    }
     subId_ = stream->subscribeWithGop(
         [w = weak_from_this()](const MediaPacket& p) {
             if (auto self = w.lock()) {
@@ -195,9 +202,36 @@ void WebRtcTransport::onVideoPacket(const MediaPacket& pkt) {
     packetizer_->packetize(nalus, pts90, pkt.isKeyframe);
 }
 
-void WebRtcTransport::onAudioPacket(const MediaPacket&) {
-    // WebRTC 音频需 Opus；当前源为 AAC，暂不转发（需转码）。
-    // 留作扩展：Transcoder 输出 Opus 后在此打包 RTP。
+void WebRtcTransport::setAudioPayloadType(int pt) {
+    if (pt < 0 || !AacToOpus::available()) return;
+    audioPt_ = pt;
+    opus_ = std::make_unique<AacToOpus>();
+    opus_->setCallback([this](const uint8_t* d, size_t n, uint32_t ts) { sendOpus(d, n, ts); });
+}
+
+// AAC → Opus（每个观众独立转码；AAC 解码 + Opus 编码开销很小）
+void WebRtcTransport::onAudioPacket(const MediaPacket& pkt) {
+    if (!opus_ || pkt.data.size() < 3) return;
+    const uint8_t* d = pkt.data.data();
+    if ((d[0] >> 4) != 10) return;  // 仅 AAC
+    if (d[1] == 0) {                // AudioSpecificConfig
+        opus_->init(d + 2, pkt.data.size() - 2);
+        return;
+    }
+    if (!sentKeyframe_) return;  // 与视频同时开始，避免先听到声音再出画面
+    if (!opus_->ready()) return;
+    opus_->feed(d + 2, pkt.data.size() - 2, pkt.timestamp);
+}
+
+void WebRtcTransport::sendOpus(const uint8_t* data, size_t len, uint32_t ts48k) {
+    RtpHeader h;
+    h.payloadType = static_cast<uint8_t>(audioPt_);
+    h.seq = audioSeq_++;
+    h.timestamp = audioTsBase_ + ts48k;
+    h.ssrc = audioSsrc_;
+    h.marker = 0;
+    auto pkt = RtpPacket::build(h, data, len);
+    sendSrtp(pkt.data(), pkt.size());
 }
 
 }  // namespace streaming

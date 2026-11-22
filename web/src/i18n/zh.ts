@@ -69,6 +69,7 @@ const zh = {
   'player.mode': '播放模式',
   'player.modeHls': '标准（HLS）',
   'player.modeFlv': '低延迟（FLV）',
+  'player.modeWebrtc': '超低延迟（WebRTC）',
   'player.quality': '清晰度',
   'player.auto': '自动',
   'player.source': '原画',

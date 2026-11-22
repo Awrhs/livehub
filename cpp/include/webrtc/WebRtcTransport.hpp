@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rtmp/MediaStream.hpp"
+#include "webrtc/AacToOpus.hpp"
 #include "webrtc/DtlsTransport.hpp"
 #include "webrtc/IceAgent.hpp"
 #include "webrtc/RtpPacket.hpp"
@@ -41,6 +42,13 @@ public:
     void setVideoPayloadType(uint8_t pt);
     uint16_t port() const { return ice_ ? ice_->port() : 0; }
     uint32_t ssrc() const { return ssrc_; }
+    uint32_t audioSsrc() const { return audioSsrc_; }
+    /// SDP 协商出 Opus 音频时调用：开启 AAC→Opus 转码并发送音频（pt < 0 表示不发送）
+    void setAudioPayloadType(int pt);
+    /// 超过 timeoutMs 未收到对端任何数据（浏览器关闭/网络断开）
+    bool idle(int64_t timeoutMs) const {
+        return ice_ && IceAgent::steadyMs() - ice_->lastRecvMs() > timeoutMs;
+    }
 
     /// 注入对端 SDP 的 fingerprint / setup 角色（DTLS 校验用，可选）
     void setRemoteFingerprint(const std::string& fp) {
@@ -57,6 +65,12 @@ private:
     std::vector<std::vector<uint8_t>> paramSets_;  // SPS/PPS（发布者线程访问）
     bool sentKeyframe_ = false;
     void onAudioPacket(const MediaPacket& pkt);
+    void sendOpus(const uint8_t* data, size_t len, uint32_t ts48k);
+    std::unique_ptr<AacToOpus> opus_;
+    int audioPt_ = -1;
+    uint32_t audioSsrc_ = 0;
+    uint16_t audioSeq_ = 0;
+    uint32_t audioTsBase_ = 0;
 
     [[maybe_unused]] EventLoop* loop_;
     std::unique_ptr<IceAgent> ice_;

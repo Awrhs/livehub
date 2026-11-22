@@ -203,7 +203,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake g++ ffmpeg libssl-dev libsrt-openssl-dev libsrtp2-dev
+          sudo apt-get install -y cmake g++ ffmpeg libssl-dev libsrt-openssl-dev libsrtp2-dev pkg-config libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev
 
       - name: Build (Debug + ASan)
         run: |

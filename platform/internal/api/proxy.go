@@ -37,6 +37,24 @@ func newPlaybackProxy(mediaURL string, log *slog.Logger) http.Handler {
 	return p
 }
 
+// handleWHEP 转发 WebRTC 播放信令（WHEP：POST SDP offer → SDP answer）到媒体服务器。
+func (s *Server) handleWHEP(w http.ResponseWriter, r *http.Request) {
+	if s.proxy == nil || s.Cfg.WebRTCCandidateIP == "" {
+		http.NotFound(w, r)
+		return
+	}
+	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/sdp") {
+		w.WriteHeader(http.StatusUnsupportedMediaType)
+		return
+	}
+	if !s.apiLimiter.Allow("whep:" + s.clientIP(r)) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	s.proxy.ServeHTTP(w, r)
+}
+
 // handlePlayback 只放行播放相关的 GET/HEAD 请求（HLS 播放列表/分片、HTTP-FLV、WS-FLV）。
 func (s *Server) handlePlayback(w http.ResponseWriter, r *http.Request) {
 	if s.proxy == nil {

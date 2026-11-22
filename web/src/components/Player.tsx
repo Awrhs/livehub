@@ -3,13 +3,13 @@ import Hls from 'hls.js'
 import mpegts from 'mpegts.js'
 import { useI18n } from '../i18n'
 
-type Mode = 'hls' | 'flv'
+type Mode = 'hls' | 'flv' | 'webrtc'
 const MODE_KEY = 'livehub.playerMode'
 
 function initialMode(): Mode {
   try {
     const v = localStorage.getItem(MODE_KEY)
-    if (v === 'hls' || v === 'flv') return v
+    if (v === 'hls' || v === 'flv' || v === 'webrtc') return v
   } catch {
     // 忽略
   }
@@ -20,6 +20,34 @@ interface Props {
   hls: string
   flv: string
   abr?: string // 多清晰度主播放列表（开启转码时）
+  webrtc?: string // WHEP 地址（站点开启 WebRTC 时）
+}
+
+// WHEP 播放：创建只收的 PeerConnection，POST offer 换取 answer（服务端为 ICE-lite，无需等待候选收集）
+async function startWhep(url: string, video: HTMLVideoElement, onFail: () => void): Promise<() => void> {
+  const pc = new RTCPeerConnection()
+  pc.addTransceiver('video', { direction: 'recvonly' })
+  pc.addTransceiver('audio', { direction: 'recvonly' })
+  const ms = new MediaStream()
+  pc.ontrack = (e) => {
+    ms.addTrack(e.track)
+    video.srcObject = ms
+  }
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') onFail()
+  }
+  const offer = await pc.createOffer()
+  await pc.setLocalDescription(offer)
+  const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, body: offer.sdp })
+  if (!resp.ok) {
+    pc.close()
+    throw new Error('WHEP ' + resp.status)
+  }
+  await pc.setRemoteDescription({ type: 'answer', sdp: await resp.text() })
+  return () => {
+    pc.close()
+    video.srcObject = null
+  }
 }
 
 /**
@@ -28,10 +56,12 @@ interface Props {
  *  - 低延迟模式：HTTP-FLV（mpegts.js，基于 MSE），延迟约 1-3 秒
  * 浏览器禁止有声自动播放：先静音播放，提示用户点击开启声音。
  */
-export default function Player({ hls, flv, abr }: Props) {
+export default function Player({ hls, flv, abr, webrtc }: Props) {
   const { t } = useI18n()
   const videoRef = useRef<HTMLVideoElement>(null)
-  const [mode, setMode] = useState<Mode>(initialMode)
+  const [modeState, setMode] = useState<Mode>(initialMode)
+  // 站点未开启 WebRTC 时回落到 HLS
+  const mode: Mode = modeState === 'webrtc' && !webrtc ? 'hls' : modeState
   const [muted, setMuted] = useState(true)
   const [error, setError] = useState('')
   const [levels, setLevels] = useState<{ index: number; label: string }[]>([])
@@ -60,7 +90,21 @@ export default function Player({ hls, flv, abr }: Props) {
     }
     let cleanup = () => {}
 
-    if (mode === 'flv') {
+    if (mode === 'webrtc' && webrtc) {
+      let stop: (() => void) | null = null
+      startWhep(webrtc, video, scheduleRetry)
+        .then((s) => {
+          if (destroyed) s()
+          else {
+            stop = s
+            play()
+          }
+        })
+        .catch(scheduleRetry)
+      cleanup = () => {
+        stop?.()
+      }
+    } else if (mode === 'flv') {
       if (!mpegts.getFeatureList().mseLivePlayback) {
         setError(t('player.unsupported'))
         return
@@ -122,7 +166,7 @@ export default function Player({ hls, flv, abr }: Props) {
     }
     // t 变化（切换语言）不需要重建播放器
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, hls, flv, abr, retry])
+  }, [mode, hls, flv, abr, webrtc, retry])
 
   const changeMode = (m: Mode) => {
     setMode(m)
@@ -174,6 +218,7 @@ export default function Player({ hls, flv, abr }: Props) {
         <select value={mode} onChange={(e) => changeMode(e.target.value as Mode)} aria-label={t('player.mode')} data-testid="player-mode">
           <option value="hls">{t('player.modeHls')}</option>
           <option value="flv">{t('player.modeFlv')}</option>
+          {webrtc && <option value="webrtc">{t('player.modeWebrtc')}</option>}
         </select>
       </div>
     </div>

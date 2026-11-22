@@ -27,6 +27,8 @@ type ServerConfig struct {
 	DVRDir        string
 	CandidateIP   string
 	InternalToken string // 转码回推等内部推流携带的令牌（INTERNAL_PUBLISH_TOKEN）
+	WebRTCPortMin int
+	WebRTCPortMax int
 }
 
 // Render 生成 streaming.conf 内容。
@@ -67,6 +69,10 @@ func (c ServerConfig) Render() string {
 	}
 	if c.CandidateIP != "" {
 		w("WEBRTC_CANDIDATE_IP=%s", c.CandidateIP)
+	}
+	if c.WebRTCPortMin > 0 && c.WebRTCPortMax >= c.WebRTCPortMin {
+		w("WEBRTC_PORT_MIN=%d", c.WebRTCPortMin)
+		w("WEBRTC_PORT_MAX=%d", c.WebRTCPortMax)
 	}
 	w("")
 	w("[vhost:__default__]")

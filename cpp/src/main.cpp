@@ -64,6 +64,7 @@
 #include "webrtc/WhipHandler.hpp"
 #include "webrtc/WebRtcManager.hpp"
 
+#include <algorithm>
 #include <execinfo.h>
 #include <unistd.h>
 
@@ -618,7 +619,11 @@ int main(int argc, char* argv[]) {
     // ---- WebRTC（WHIP 上行 / WHEP 下行）----
     // 须在 WhipHandler/WhepHandler 之前构造（它们的构造函数立即取 webrtc.get()）
     auto webrtc =
-        std::make_shared<WebRtcManager>(&baseLoop, 50000, 1000);
+        std::make_shared<WebRtcManager>(
+            &baseLoop, static_cast<uint16_t>(cfg.webrtcPortMin()),
+            static_cast<uint16_t>(std::max(1, cfg.webrtcPortMax() - cfg.webrtcPortMin() + 1)));
+    // 每 5 秒回收空闲的 WHEP 会话（30 秒无任何对端数据）
+    baseLoop.runEvery(5.0, [webrtc] { webrtc->sweepIdle(30000); });
 
     // WebRTC WHIP / WHEP
     auto streamResolver =

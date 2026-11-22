@@ -130,6 +130,9 @@ if $PY -c "import aiortc" 2>/dev/null; then
     W=$(cat "$WORK/whep.out")
     vf=$(echo "$W" | grep -oE 'video_frames=[0-9]+' | cut -d= -f2)
     [ "${vf:-0}" -ge 60 ] && pass "WHEP 拉流（$W）" || fail "WHEP 拉流异常（$W；$(tail -2 "$WORK/whep.err" | tr '\n' ' ' | cut -c1-200)）"
+    af=$(echo "$W" | sed -n 's/.*audio_frames=\([0-9]*\).*/\1/p')
+    # AAC→Opus 转码：6 秒内应收到上百个 20ms 音频帧
+    [ "${af:-0}" -ge 100 ] && pass "WHEP 音频（Opus，$af 帧）" || fail "WHEP 未收到音频（$W）"
     wait "$WHIP_PID"
     W=$(cat "$WORK/whip.out")
     echo "$W" | grep -q 'state=connected' && pass "WHIP 会话保持连接（$W）" \

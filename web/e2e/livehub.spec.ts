@@ -107,6 +107,18 @@ test('站点完整用户旅程', async ({ browser }) => {
     await viewer.getByTestId('player-mode').selectOption('flv')
     await expectPlaying(viewer)
 
+    // 7b. 超低延迟模式（WebRTC/WHEP）：视频播放且带音频轨（AAC→Opus 转码）
+    await viewer.getByTestId('player-mode').selectOption('webrtc')
+    await expectPlaying(viewer)
+    await expect
+      .poll(async () =>
+        viewer.getByTestId('video').evaluate((v: HTMLVideoElement) => {
+          const s = v.srcObject as MediaStream | null
+          return s ? s.getAudioTracks().length : 0
+        }),
+      )
+      .toBe(1)
+
     // 8. 管理员进入频道发言，游客实时看到；游客看到登录提示
     await admin.goto('/streamer1')
     await expect(admin.getByTestId('chat-input')).toBeVisible()

@@ -39,7 +39,11 @@ type Config struct {
 	InternalToken string
 
 	// 边缘播放节点（逗号分隔的对外基础地址，如 https://edge1.example.com）；为空则全部由本机分发
-	EdgeURLs      []string
+	EdgeURLs []string
+	// WebRTC 超低延迟播放：设置对外 IP 即开启（浏览器需能以 UDP 访问该 IP 的端口范围）
+	WebRTCCandidateIP string
+	WebRTCPortMin     int
+	WebRTCPortMax     int
 	TrustProxy    bool   // 信任 X-Forwarded-For / X-Forwarded-Proto（部署在反向代理后）
 	SecureCookies string // auto | true | false
 	BcryptCost    int
@@ -104,6 +108,13 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	if c.MediaSRTPort, err = envInt("LIVEHUB_MEDIA_SRT_PORT", 10080); err != nil {
+		return nil, err
+	}
+	c.WebRTCCandidateIP = env("LIVEHUB_WEBRTC_CANDIDATE_IP", "")
+	if c.WebRTCPortMin, err = envInt("LIVEHUB_WEBRTC_PORT_MIN", 50000); err != nil {
+		return nil, err
+	}
+	if c.WebRTCPortMax, err = envInt("LIVEHUB_WEBRTC_PORT_MAX", 50099); err != nil {
 		return nil, err
 	}
 	if c.BcryptCost, err = envInt("LIVEHUB_BCRYPT_COST", 10); err != nil {

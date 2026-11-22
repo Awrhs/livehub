@@ -23,12 +23,15 @@ struct SdpAnswerParams {
     std::string fingerprint;         // "sha-256 AB:CD:..."
     std::string candidateLine;       // "a=candidate:..."
     uint32_t ssrc = 0;               // sendVideo 时使用
+    bool sendAudio = false;          // WHEP 且具备 AAC→Opus 转码：音频 m 行 sendonly
+    uint32_t audioSsrc = 0;
 };
 
 struct SdpAnswerResult {
     bool ok = false;                 // offer 中找到可用的 H.264 视频
     std::string sdp;
     int videoPayloadType = -1;
+    int audioPayloadType = -1;       // 接受并发送的 Opus PT（sendAudio 时）
     std::string error;
 };
 

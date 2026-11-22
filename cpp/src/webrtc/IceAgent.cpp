@@ -17,7 +17,10 @@ IceAgent::IceAgent(EventLoop* loop, uint16_t port) : loop_(loop) {
 
 IceAgent::~IceAgent() { stop(); }
 
-void IceAgent::start() { udp_->start(); }
+void IceAgent::start() {
+    lastRecvMs_ = steadyMs();
+    udp_->start();
+}
 
 void IceAgent::stop() {
     udp_.reset();
@@ -38,6 +41,7 @@ void IceAgent::send(const uint8_t* data, size_t len) {
 
 void IceAgent::onDatagram(const uint8_t* data, size_t len,
                           const sockaddr_in& peer, Timestamp) {
+    lastRecvMs_ = steadyMs();
     // STUN 报文首 2 位为 0（RFC 5389）
     bool isStun = len >= 20 && (data[0] & 0xC0) == 0 &&
                   data[4] == 0x21 && data[5] == 0x12 && data[6] == 0xA4 &&

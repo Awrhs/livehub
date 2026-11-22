@@ -4,6 +4,8 @@
 #include "net/UdpServer.hpp"
 #include "webrtc/Stun.hpp"
 
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -35,6 +37,13 @@ public:
     void setOnData(DataCallback cb) { onData_ = std::move(cb); }
 
     void start();
+    /// 最近一次收到对端数据（含 STUN 心跳）的时间（steady clock 毫秒）
+    int64_t lastRecvMs() const { return lastRecvMs_.load(); }
+    static int64_t steadyMs() {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+    }
     void stop();
 
     /// 设置 STUN short-term 密码（ice-pwd），用于校验 MESSAGE-INTEGRITY
@@ -57,6 +66,7 @@ private:
     std::unique_ptr<UdpServer> udp_;
     std::string password_;
     bool selected_ = false;
+    std::atomic<int64_t> lastRecvMs_{0};
     sockaddr_in peer_{};
     [[maybe_unused]] uint32_t localIpv4_ = 0;  // 候选地址（host order）
     CandidateCallback onCandidate_;

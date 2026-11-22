@@ -28,7 +28,7 @@ export interface Channel {
   created_at: number
   display_name: string
   viewers?: number
-  playback?: { hls: string; flv: string; abr?: string }
+  playback?: { hls: string; flv: string; abr?: string; webrtc?: string; edge?: string }
   thumbnail?: string
 }
 

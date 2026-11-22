@@ -3,6 +3,7 @@
 
 #include <random>
 #include <sstream>
+#include <vector>
 
 namespace streaming {
 
@@ -81,6 +82,31 @@ std::shared_ptr<WebRtcIngest> WebRtcManager::createIngest(
         ingests_[sessionId] = ingest;
     }
     return ingest;
+}
+
+size_t WebRtcManager::sweepIdle(int64_t timeoutMs) {
+    std::vector<std::shared_ptr<WebRtcTransport>> dead;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        for (auto it = sessions_.begin(); it != sessions_.end();) {
+            if (it->second->idle(timeoutMs)) {
+                dead.push_back(it->second);
+                it = sessions_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+    // 原实现从不回收 WHEP 会话：观众关闭页面后 UDP 端口与订阅永久泄漏
+    for (auto& t : dead) t->stop();
+    if (!dead.empty())
+        LOG_INFO("WebRtcManager: 回收 %zu 个空闲 WHEP 会话", dead.size());
+    return dead.size();
+}
+
+size_t WebRtcManager::sessionCount() const {
+    std::lock_guard<std::mutex> lk(mu_);
+    return sessions_.size();
 }
 
 void WebRtcManager::remove(const std::string& sessionId) {

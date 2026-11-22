@@ -109,7 +109,7 @@ export default function ChannelPage() {
             )}
           </div>
         ) : ch.is_live && ch.playback ? (
-          <Player hls={ch.playback.hls} flv={ch.playback.flv} abr={ch.playback.abr} />
+          <Player hls={ch.playback.hls} flv={ch.playback.flv} abr={ch.playback.abr} webrtc={ch.playback.webrtc} />
         ) : (
           <div className="player">
             <div className="overlay" data-testid="offline">

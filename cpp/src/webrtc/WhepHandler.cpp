@@ -4,6 +4,7 @@
 #include "api/HttpServer.hpp"
 #include "core/Logger.hpp"
 #include "rtmp/MediaStream.hpp"
+#include "webrtc/AacToOpus.hpp"
 #include "webrtc/Sdp.hpp"
 #include "webrtc/SdpAnswer.hpp"
 #include "webrtc/WebRtcUtil.hpp"
@@ -36,6 +37,7 @@ void WhepHandler::registerRoutes(HttpServer& server) {
                     // 先校验 offer，再分配传输资源
                     SdpAnswerParams p;
                     p.sendVideo = true;
+                    p.sendAudio = AacToOpus::available();
                     auto probe = buildSdpAnswer(req.body(), p);
                     if (!probe.ok) return fail(HttpStatusCode::k400BadRequest, probe.error);
 
@@ -50,8 +52,10 @@ void WhepHandler::registerRoutes(HttpServer& server) {
                     p.fingerprint = webrtc_->localFingerprint();
                     p.candidateLine = webrtcCandidateLine(candidateIp_, transport->port());
                     p.ssrc = transport->ssrc();
+                    p.audioSsrc = transport->audioSsrc();
                     auto ans = buildSdpAnswer(req.body(), p);
                     transport->setVideoPayloadType(static_cast<uint8_t>(ans.videoPayloadType));
+                    transport->setAudioPayloadType(ans.audioPayloadType);
 
                     resp.setStatusCode(HttpStatusCode::k201Created);
                     resp.setContentType("application/sdp");

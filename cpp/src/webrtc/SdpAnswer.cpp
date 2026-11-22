@@ -117,7 +117,12 @@ SdpAnswerResult buildSdpAnswer(const std::string& offer, const SdpAnswerParams& 
                 if (it != sections[i].rtpmap.end() &&
                     lower(it->second).compare(0, 5, "opus/") == 0) {
                     accepted[i] = pt;
-                    inactive[i] = true;
+                    // WHEP 且可转码：发送 Opus；否则以 inactive 接受（不收发）
+                    if (p.sendVideo && p.sendAudio && r.audioPayloadType < 0) {
+                        r.audioPayloadType = pt;
+                    } else {
+                        inactive[i] = true;
+                    }
                     break;
                 }
             }
@@ -174,14 +179,19 @@ SdpAnswerResult buildSdpAnswer(const std::string& offer, const SdpAnswerParams& 
         o << "a=rtcp-mux\r\n";
         o << "a=rtpmap:" << pt << " " << s.rtpmap.at(pt) << "\r\n";
         if (s.fmtp.count(pt)) o << "a=fmtp:" << pt << " " << s.fmtp.at(pt) << "\r\n";
-        if (!inactive[i]) {
+        if (!inactive[i] && s.media == "video") {
             o << "a=rtcp-fb:" << pt << " nack\r\n";
             o << "a=rtcp-fb:" << pt << " nack pli\r\n";
         }
-        if (p.sendVideo && p.ssrc && !inactive[i]) {
-            o << "a=msid:streaming video0\r\n";
-            o << "a=ssrc:" << p.ssrc << " cname:streaming\r\n";
-            o << "a=ssrc:" << p.ssrc << " msid:streaming video0\r\n";
+        if (p.sendVideo && !inactive[i]) {
+            const bool audio = s.media == "audio";
+            const uint32_t ssrc = audio ? p.audioSsrc : p.ssrc;
+            const char* track = audio ? "audio0" : "video0";
+            if (ssrc) {
+                o << "a=msid:streaming " << track << "\r\n";
+                o << "a=ssrc:" << ssrc << " cname:streaming\r\n";
+                o << "a=ssrc:" << ssrc << " msid:streaming " << track << "\r\n";
+            }
         }
         if (first && !p.candidateLine.empty()) {
             o << p.candidateLine << "\r\n";

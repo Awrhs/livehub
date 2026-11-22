@@ -77,6 +77,8 @@ public:
     /// 终态转码任务保留时长（秒），超时由定时清理
     int transcodeTaskTtlSec() const { return transcodeTaskTtlSec_; }
     std::string internalPublishToken() const { return internalPublishToken_; }
+    int webrtcPortMin() const { return webrtcPortMin_; }
+    int webrtcPortMax() const { return webrtcPortMax_; }
 
     // SRT 接入端口（UDP）
     uint16_t srtPort() const { return srtPort_; }
@@ -142,6 +144,8 @@ private:
     int transcodeConcurrency_ = 0;
     int transcodeTaskTtlSec_ = 3600;
     std::string internalPublishToken_;
+    int webrtcPortMin_ = 50000;
+    int webrtcPortMax_ = 50999;
 
     uint16_t srtPort_ = 19535;
     uint16_t rtspPort_ = 8554;
