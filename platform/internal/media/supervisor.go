@@ -16,16 +16,16 @@ import (
 
 // ServerConfig 内嵌模式下生成的媒体服务器配置。
 type ServerConfig struct {
-	WorkDir     string
-	HTTPPort    int
-	RTMPPort    int
-	SRTPort     int // 0 = 关闭
-	AdminToken  string
-	JWTSecret   string
-	HookBaseURL string // 平台地址，如 http://127.0.0.1:8000
-	HookSecret  string
-	DVRDir      string
-	CandidateIP string
+	WorkDir       string
+	HTTPPort      int
+	RTMPPort      int
+	SRTPort       int // 0 = 关闭
+	AdminToken    string
+	JWTSecret     string
+	HookBaseURL   string // 平台地址，如 http://127.0.0.1:8000
+	HookSecret    string
+	DVRDir        string
+	CandidateIP   string
 	InternalToken string // 转码回推等内部推流携带的令牌（INTERNAL_PUBLISH_TOKEN）
 }
 

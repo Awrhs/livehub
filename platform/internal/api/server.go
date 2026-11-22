@@ -33,7 +33,7 @@ type Server struct {
 	// InternalToken 媒体服务器内部推流（多清晰度转码回推）携带的令牌
 	InternalToken string
 	Static        http.Handler
-	Version    string
+	Version       string
 
 	authLimiter     *ratelimit.Limiter // 登录：按 IP
 	registerLimiter *ratelimit.Limiter // 注册：按 IP

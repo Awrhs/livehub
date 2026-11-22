@@ -33,7 +33,7 @@ type Config struct {
 	MediaSRTPort    int // 0 = 关闭 SRT
 	MediaDVRDir     string
 
-	FFmpeg string // 截取封面使用的 ffmpeg
+	FFmpeg  string // 截取封面使用的 ffmpeg
 	FFprobe string
 	// 外部模式：媒体服务器 INTERNAL_PUBLISH_TOKEN（多清晰度转码回推时携带）
 	InternalToken string
