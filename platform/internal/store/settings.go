@@ -17,10 +17,12 @@ const (
 	SettingTranscodeEnabled = "transcode_enabled" // 全站是否开启多清晰度转码
 	SettingChatSlowModeSec  = "chat_slow_mode_sec"
 	SettingChatBlockedWords = "chat_blocked_words" // 换行分隔
+	SettingVODRetentionDays = "vod_retention_days" // 录像保留天数，0 = 永久
 
 	// 内部密钥（内嵌媒体服务器模式自动生成，不对外暴露）
 	SettingMediaAdminToken = "internal_media_admin_token"
 	SettingHookSecret      = "internal_hook_secret"
+	SettingInternalToken   = "internal_publish_token"
 	SettingMediaJWTSecret  = "internal_media_jwt_secret"
 )
 
@@ -33,12 +35,14 @@ var settingDefaults = map[string]string{
 	SettingTranscodeEnabled: "false",
 	SettingChatSlowModeSec:  "0",
 	SettingChatBlockedWords: "",
+	SettingVODRetentionDays: "0",
 }
 
 // PublicSettingKeys 管理后台可读写的设置。
 var PublicSettingKeys = []string{
 	SettingSiteName, SettingRegistrationMode, SettingStreamApproval, SettingAnnouncement,
 	SettingRecordingEnabled, SettingTranscodeEnabled, SettingChatSlowModeSec, SettingChatBlockedWords,
+	SettingVODRetentionDays,
 }
 
 func (s *Store) Setting(ctx context.Context, key string) (string, error) {

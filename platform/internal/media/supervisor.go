@@ -26,6 +26,7 @@ type ServerConfig struct {
 	HookSecret  string
 	DVRDir      string
 	CandidateIP string
+	InternalToken string // 转码回推等内部推流携带的令牌（INTERNAL_PUBLISH_TOKEN）
 }
 
 // Render 生成 streaming.conf 内容。
@@ -59,6 +60,11 @@ func (c ServerConfig) Render() string {
 	w("JWT_SECRET=%s", c.JWTSecret)
 	w("ADMIN_TOKEN=%s", c.AdminToken)
 	w("LOG_LEVEL=INFO")
+	w("TRANSCODE_PROFILES=480p,720p")
+	w("TRANSCODE_CONCURRENCY=8")
+	if c.InternalToken != "" {
+		w("INTERNAL_PUBLISH_TOKEN=%s", c.InternalToken)
+	}
 	if c.CandidateIP != "" {
 		w("WEBRTC_CANDIDATE_IP=%s", c.CandidateIP)
 	}

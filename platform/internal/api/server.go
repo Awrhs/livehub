@@ -30,7 +30,9 @@ type Server struct {
 	Hub        *chat.Hub
 	Log        *slog.Logger
 	HookSecret string
-	Static     http.Handler
+	// InternalToken 媒体服务器内部推流（多清晰度转码回推）携带的令牌
+	InternalToken string
+	Static        http.Handler
 	Version    string
 
 	authLimiter     *ratelimit.Limiter // 登录：按 IP
@@ -45,7 +47,17 @@ type Server struct {
 	missing  map[int64]int // 对账：频道连续缺席次数
 	chanLock sync.Map      // 频道 ID → *sync.Mutex，串行化同一频道的开播/下播处理
 
+	stateMu  sync.Mutex
+	streams  map[string]*streamState // 频道 → 开播期间的录像/转码状态
+	abrReady map[string]bool
+	recLocks sync.Map // 频道 ID → *sync.Mutex：录像开始与归档串行
+
 	proxy http.Handler
+}
+
+func (s *Server) recordMutex(id int64) *sync.Mutex {
+	m, _ := s.recLocks.LoadOrStore(id, &sync.Mutex{})
+	return m.(*sync.Mutex)
 }
 
 func New(cfg *config.Config, st *store.Store, mc *media.Client, hub *chat.Hub, log *slog.Logger,
@@ -59,6 +71,8 @@ func New(cfg *config.Config, st *store.Store, mc *media.Client, hub *chat.Hub, l
 		apiLimiter:      ratelimit.PerMinute(120, 60),
 		lastSent:        map[[2]int64]time.Time{},
 		missing:         map[int64]int{},
+		streams:         map[string]*streamState{},
+		abrReady:        map[string]bool{},
 	}
 	if mc != nil {
 		s.proxy = newPlaybackProxy(cfg.MediaURL, log)
@@ -105,6 +119,32 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/admin/invites", s.requireAdmin(s.handleAdminCreateInvite))
 	mux.HandleFunc("DELETE /api/v1/admin/invites/{code}", s.requireAdmin(s.handleAdminDeleteInvite))
 	mux.HandleFunc("POST /api/v1/admin/channels/{slug}/kick", s.requireAdmin(s.handleAdminKick))
+
+	// 关注、通知、举报
+	mux.HandleFunc("POST /api/v1/channels/{slug}/follow", s.requireUser(s.handleFollow))
+	mux.HandleFunc("DELETE /api/v1/channels/{slug}/follow", s.requireUser(s.handleFollow))
+	mux.HandleFunc("GET /api/v1/me/following", s.requireUser(s.handleFollowing))
+	mux.HandleFunc("GET /api/v1/me/notifications", s.requireUser(s.handleNotifications))
+	mux.HandleFunc("POST /api/v1/me/notifications/read", s.requireUser(s.handleNotificationsRead))
+	mux.HandleFunc("POST /api/v1/channels/{slug}/report", s.requireUser(s.handleReport))
+	mux.HandleFunc("GET /api/v1/admin/reports", s.requireAdmin(s.handleAdminReports))
+	mux.HandleFunc("POST /api/v1/admin/reports/{id}", s.requireAdmin(s.handleAdminResolveReport))
+
+	// 频道聊天管理
+	mux.HandleFunc("POST /api/v1/channels/{slug}/bans", s.requireUser(s.handleChannelBan))
+	mux.HandleFunc("DELETE /api/v1/channels/{slug}/bans/{uid}", s.requireUser(s.handleChannelUnban))
+	mux.HandleFunc("GET /api/v1/channels/{slug}/moderators", s.requireUser(s.handleListModerators))
+	mux.HandleFunc("POST /api/v1/channels/{slug}/moderators", s.requireUser(s.handleAddModerator))
+	mux.HandleFunc("DELETE /api/v1/channels/{slug}/moderators/{uid}", s.requireUser(s.handleRemoveModerator))
+
+	// 录像回放
+	mux.HandleFunc("GET /api/v1/vods", s.handleRecentVODs)
+	mux.HandleFunc("GET /api/v1/channels/{slug}/vods", s.handleChannelVODs)
+	mux.HandleFunc("GET /api/v1/vods/{id}", s.handleGetVOD)
+	mux.HandleFunc("PATCH /api/v1/vods/{id}", s.requireUser(s.handlePatchVOD))
+	mux.HandleFunc("DELETE /api/v1/vods/{id}", s.requireUser(s.handleDeleteVOD))
+	mux.HandleFunc("GET /vods/{id}", s.handleVODFile)
+	mux.HandleFunc("GET /thumbs/{name}", s.handleThumb)
 
 	// API 未匹配的路径返回 JSON 404（不落到前端页面）
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {

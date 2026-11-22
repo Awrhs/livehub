@@ -91,6 +91,12 @@ func run() error {
 			return err
 		}
 	}
+	internalToken := cfg.InternalToken
+	if cfg.Embedded() {
+		if internalToken, err = st.EnsureSecret(ctx, store.SettingInternalToken); err != nil {
+			return err
+		}
+	}
 
 	var mc *media.Client
 	if cfg.HasMedia() {
@@ -98,6 +104,7 @@ func run() error {
 	}
 	hub := chat.NewHub()
 	srv := api.New(cfg, st, mc, hub, log, hookSecret, webui.Handler(), version)
+	srv.InternalToken = internalToken
 
 	var wg sync.WaitGroup
 	if cfg.Embedded() {
@@ -111,7 +118,7 @@ func run() error {
 				WorkDir: cfg.MediaWorkDir(), HTTPPort: cfg.MediaHTTPPort, RTMPPort: cfg.MediaRTMPPort,
 				SRTPort: cfg.MediaSRTPort, AdminToken: adminToken, JWTSecret: jwtSecret,
 				HookBaseURL: cfg.HookURL, HookSecret: hookSecret, DVRDir: cfg.MediaDVRDir,
-				CandidateIP: os.Getenv("LIVEHUB_WEBRTC_CANDIDATE_IP"),
+				CandidateIP: os.Getenv("LIVEHUB_WEBRTC_CANDIDATE_IP"), InternalToken: internalToken,
 			},
 			Log:       log.With("component", "supervisor"),
 			OnRestart: srv.OnMediaRestart,

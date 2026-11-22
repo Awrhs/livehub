@@ -39,6 +39,7 @@ func (s *Server) handleAdminStats(w http.ResponseWriter, r *http.Request, _ *sto
 	writeJSON(w, http.StatusOK, map[string]any{
 		"users": users, "live_channels": len(live), "viewers": viewers,
 		"pending_requests": pendingTotal, "media_healthy": mediaOK, "media_enabled": s.Media != nil,
+		"open_reports": s.Store.OpenReportCount(ctx),
 	})
 }
 
@@ -126,6 +127,12 @@ func (s *Server) handleAdminPatchUser(w http.ResponseWriter, r *http.Request, ad
 	}
 	if body.StreamStatus != nil && *body.StreamStatus != target.StreamStatus {
 		changes = append(changes, "stream_status="+*body.StreamStatus)
+		switch *body.StreamStatus {
+		case store.StreamApproved:
+			_ = s.Store.Notify(ctx, target.ID, "stream_approved", nil, "")
+		case store.StreamRejected:
+			_ = s.Store.Notify(ctx, target.ID, "stream_rejected", nil, "")
+		}
 	}
 	if body.Banned != nil && *body.Banned != target.Banned {
 		changes = append(changes, fmt.Sprintf("banned=%v", *body.Banned))
@@ -222,6 +229,11 @@ func validateSetting(k, v string) string {
 	case store.SettingAnnouncement:
 		if utf8.RuneCountInString(v) > 500 {
 			return "公告不能超过 500 字"
+		}
+	case store.SettingVODRetentionDays:
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 || n > 3650 {
+			return "录像保留天数须为 0-3650"
 		}
 	case store.SettingChatBlockedWords:
 		if utf8.RuneCountInString(v) > 10000 {

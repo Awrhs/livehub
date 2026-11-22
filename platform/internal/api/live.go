@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -51,6 +52,11 @@ func (s *Server) handleMediaHook(w http.ResponseWriter, r *http.Request) {
 	name := ev.streamName()
 	switch ev.Action {
 	case "on_publish":
+		// 媒体服务器内部推流（多清晰度转码结果回推）：校验内部令牌，不改变直播状态
+		if s.isInternalPublish(r.Context(), name, ev.Param) {
+			writeJSON(w, http.StatusOK, hookReply{Code: 0})
+			return
+		}
 		ch, reason := s.authorizePublish(r, ev.App, name, ev.Param)
 		if ch == nil {
 			s.Log.Info("拒绝推流", "stream", name, "reason", reason)
@@ -68,6 +74,26 @@ func (s *Server) handleMediaHook(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, http.StatusOK, hookReply{Code: 0})
 	}
+}
+
+var variantRe = regexp.MustCompile(`^(.+)_([0-9]+p)$`)
+
+// isInternalPublish 是否为内部推流：<频道>_<档位>，携带正确的内部令牌，且频道正在直播。
+func (s *Server) isInternalPublish(ctx context.Context, name, param string) bool {
+	if s.InternalToken == "" {
+		return false
+	}
+	m := variantRe.FindStringSubmatch(name)
+	if m == nil {
+		return false
+	}
+	q, _ := url.ParseQuery(strings.TrimPrefix(param, "?"))
+	tok := q.Get("internal")
+	if tok == "" || subtle.ConstantTimeCompare([]byte(tok), []byte(s.InternalToken)) != 1 {
+		return false
+	}
+	ch, err := s.Store.ChannelBySlug(ctx, m[1])
+	return err == nil && ch.Slug == m[1] && ch.IsLive
 }
 
 // authorizePublish 校验推流：频道存在（大小写一致）、主播有开播权限、密钥正确。
@@ -122,6 +148,7 @@ func (s *Server) goLive(ctx context.Context, ch *store.Channel) {
 	if changed {
 		s.Log.Info("开播", "channel", ch.Slug)
 		s.Hub.Broadcast(ch.ID, map[string]any{"type": "live", "is_live": true})
+		go s.afterLive(ch)
 	}
 }
 
@@ -130,7 +157,7 @@ func (s *Server) goOffline(ctx context.Context, ch *store.Channel) {
 	mu := s.channelMutex(ch.ID)
 	mu.Lock()
 	defer mu.Unlock()
-	_, changed, err := s.Store.SetOffline(ctx, ch.ID)
+	sid, changed, err := s.Store.SetOffline(ctx, ch.ID)
 	if err != nil {
 		s.Log.Error("标记下播失败", "channel", ch.Slug, "err", err)
 		return
@@ -138,6 +165,7 @@ func (s *Server) goOffline(ctx context.Context, ch *store.Channel) {
 	if changed {
 		s.Log.Info("下播", "channel", ch.Slug)
 		s.Hub.Broadcast(ch.ID, map[string]any{"type": "live", "is_live": false})
+		go s.afterOffline(ch, sid)
 	}
 }
 
@@ -156,6 +184,8 @@ func (s *Server) endStream(ctx context.Context, ch *store.Channel) {
 // RunBackground 周期任务：直播状态对账、观众数推送、峰值统计、清理过期数据。阻塞直到 ctx 取消。
 func (s *Server) RunBackground(ctx context.Context) {
 	reconcile := time.NewTicker(10 * time.Second)
+	thumbs := time.NewTicker(60 * time.Second)
+	defer thumbs.Stop()
 	viewers := time.NewTicker(5 * time.Second)
 	cleanup := time.NewTicker(time.Hour)
 	defer reconcile.Stop()
@@ -170,9 +200,13 @@ func (s *Server) RunBackground(ctx context.Context) {
 			s.reconcile(ctx)
 		case <-viewers.C:
 			last = s.pushViewerCounts(ctx, last)
+		case <-thumbs.C:
+			s.refreshThumbs(ctx)
 		case <-cleanup.C:
 			_ = s.Store.PurgeExpiredSessions(ctx)
 			_ = s.Store.PruneChat(ctx, 1000)
+			_ = s.Store.PruneNotifications(ctx)
+			s.pruneVODs(ctx)
 		}
 	}
 }
@@ -196,6 +230,7 @@ func (s *Server) reconcile(ctx context.Context) {
 			active[st.Key] = true
 		}
 	}
+	s.updateABRReady(active)
 	live, err := s.Store.LiveChannels(ctx)
 	if err != nil {
 		return

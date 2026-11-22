@@ -149,6 +149,57 @@ PIDS+=($!)
 wait_for 20 is_live bob && pass "再次开播" || fail "再次开播失败"
 if wait_for 30 is_offline bob; then pass "推流结束后自动下播"; else fail "推流结束后未下播"; fi
 
+echo "== 阶段 2：关注通知、封面、多清晰度、录像回放"
+api "$C" POST /channels/bob/follow >/dev/null
+[ "$(status)" = "200" ] && pass "carol 关注 bob" || fail "关注失败 $(status)"
+api "$A" PUT /admin/settings '{"transcode_enabled":"true"}' >/dev/null
+sleep 3  # 等待上一场录像归档完成
+VODS_BEFORE=$(curl -s "$BASE/api/v1/channels/bob/vods" | jq '.vods | length')
+push "$KEY" 40 push_phase2 &
+PIDS+=($!)
+wait_for 20 is_live bob && pass "开播（转码开启）" || fail "开播失败"
+has_notice() { [ "$(api "$C" GET /me/notifications | jq -r .unread)" -ge 1 ]; }
+if wait_for 10 has_notice; then pass "关注者收到开播通知"; else fail "关注者未收到开播通知"; fi
+has_thumb() { [ -n "$(curl -s "$BASE/api/v1/channels/bob" | jq -r '.channel.thumbnail // empty')" ]; }
+if wait_for 25 has_thumb; then
+  T=$(curl -s "$BASE/api/v1/channels/bob" | jq -r .channel.thumbnail)
+  ct=$(curl -s -o "$ART/live_thumb.jpg" -w '%{content_type}' "$BASE$T")
+  [[ "$ct" == image/jpeg* ]] && pass "直播封面 $T" || fail "封面类型 $ct"
+else
+  fail "未生成直播封面"
+fi
+has_abr() { [ -n "$(curl -s "$BASE/api/v1/channels/bob" | jq -r '.channel.playback.abr // empty')" ]; }
+if wait_for 30 has_abr; then
+  ABR=$(curl -s "$BASE/api/v1/channels/bob" | jq -r .channel.playback.abr)
+  curl -s "$BASE$ABR" >"$ART/master.m3u8"
+  if grep -q "bob_720p" "$ART/master.m3u8" && grep -q "bob_480p" "$ART/master.m3u8"; then pass "多清晰度主播放列表"; else fail "主播放列表内容: $(head -c 300 "$ART/master.m3u8")"; fi
+  v720() { curl -sf "$BASE/live/bob_720p.m3u8" | grep -q '#EXTINF'; }
+  if wait_for 20 v720; then pass "720p 档位可播放"; else fail "720p 档位不可播放"; fi
+else
+  fail "多清晰度未就绪"
+  grep -i "abr\|transcode\|变体\|internal" "$WORK/livehub.log" | tail -20
+fi
+api "$A" PUT /admin/settings '{"transcode_enabled":"false"}' >/dev/null
+if wait_for 40 is_offline bob; then pass "推流结束下播"; else fail "推流结束未下播"; fi
+vod_ready() { [ "$(curl -s "$BASE/api/v1/channels/bob/vods" | jq '.vods | length')" -gt "$VODS_BEFORE" ]; }
+if wait_for 30 vod_ready; then
+  VOD=$(curl -s "$BASE/api/v1/channels/bob/vods" | jq '.vods[0]')
+  echo "  [INFO] VOD: $(echo "$VOD" | jq -c '{id,title,duration_sec,size_bytes,url,thumbnail}')"
+  VURL=$(echo "$VOD" | jq -r .url)
+  dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$BASE$VURL" 2>&1)
+  if awk "BEGIN{exit !($dur > 25)}" 2>/dev/null; then pass "录像回放时长 ${dur}s"; else fail "录像时长异常: $dur"; fi
+  code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Range: bytes=0-1023' "$BASE$VURL")
+  [ "$code" = "206" ] && pass "录像支持 Range 拖动" || fail "Range 返回 $code"
+  VT=$(echo "$VOD" | jq -r '.thumbnail // empty')
+  [ -n "$VT" ] && [ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE$VT")" = "200" ] && pass "录像封面" || fail "录像封面缺失"
+  VID=$(echo "$VOD" | jq -r .id)
+  api "$C" DELETE "/vods/$VID" >/dev/null
+  [ "$(status)" = "403" ] && pass "非主播不能删除录像" || fail "非主播删除录像返回 $(status)"
+else
+  fail "未生成录像回放"
+  grep -i "录像\|record" "$WORK/livehub.log" | tail -20
+fi
+
 echo "== SRT 推流"
 SID="#!::r=live/$KEY,m=publish"
 SRT_URL="srt://127.0.0.1:10080?streamid=$(jq -rn --arg s "$SID" '$s|@uri')&latency=200000"

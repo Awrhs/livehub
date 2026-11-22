@@ -12,18 +12,21 @@ import (
 type playback struct {
 	HLS string `json:"hls"`
 	FLV string `json:"flv"`
+	ABR string `json:"abr,omitempty"` // 多清晰度主播放列表（开启转码且就绪时）
 }
 
 type channelView struct {
 	*store.Channel
-	Viewers  int       `json:"viewers"`
-	Playback *playback `json:"playback,omitempty"`
+	Viewers   int       `json:"viewers"`
+	Playback  *playback `json:"playback,omitempty"`
+	Thumbnail string    `json:"thumbnail,omitempty"`
 }
 
 func (s *Server) channelView(c *store.Channel) channelView {
 	v := channelView{Channel: c, Viewers: s.Hub.Count(c.ID)}
 	if c.IsLive {
-		v.Playback = &playback{HLS: "/live/" + c.Slug + ".m3u8", FLV: "/live/" + c.Slug + ".flv"}
+		v.Playback = &playback{HLS: "/live/" + c.Slug + ".m3u8", FLV: "/live/" + c.Slug + ".flv", ABR: s.abrURL(c.Slug)}
+		v.Thumbnail = s.thumbURL("live_" + c.Slug + ".jpg")
 	}
 	return v
 }
@@ -83,8 +86,14 @@ func (s *Server) handleGetChannel(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, r, err)
 		return
 	}
+	following := false
+	if u := currentUser(r); u != nil {
+		following = s.Store.IsFollowing(r.Context(), u.ID, c.ID)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"channel": s.channelView(c),
+		"channel":   s.channelView(c),
+		"followers": s.Store.FollowerCount(r.Context(), c.ID),
+		"following": following,
 		"owner": map[string]any{
 			"id": owner.ID, "username": owner.Username, "display_name": owner.DisplayName,
 			"bio": owner.Bio, "role": owner.Role, "created_at": owner.CreatedAt,

@@ -29,9 +29,15 @@ type chatMe struct {
 	CanModerate bool   `json:"can_moderate"`
 }
 
-// canModerate 管理员、站务与频道主可管理该频道聊天。
-func canModerate(u *store.User, ch *store.Channel) bool {
-	return u != nil && (u.IsStaff() || u.ID == ch.UserID)
+// isChannelMod 管理员、站务、频道主与该频道房管可管理聊天。
+func (s *Server) isChannelMod(ctx context.Context, u *store.User, ch *store.Channel) bool {
+	if u == nil {
+		return false
+	}
+	if u.IsStaff() || u.ID == ch.UserID {
+		return true
+	}
+	return s.Store.IsModerator(ctx, ch.ID, u.ID)
 }
 
 func (s *Server) handleChatHistory(w http.ResponseWriter, r *http.Request) {
@@ -89,7 +95,7 @@ func (s *Server) handleChatWS(w http.ResponseWriter, r *http.Request) {
 	}
 	if u != nil {
 		hello["me"] = chatMe{ID: u.ID, Username: u.Username, DisplayName: u.DisplayName, Role: u.Role,
-			CanModerate: canModerate(u, ch)}
+			CanModerate: s.isChannelMod(ctx, u, ch)}
 	}
 	if b, err := json.Marshal(hello); err == nil {
 		client.Send <- b
@@ -165,8 +171,14 @@ func (s *Server) postChat(ctx context.Context, ch *store.Channel, u *store.User,
 	if n > chatMaxRunes {
 		return "too_long", "消息不能超过 " + strconv.Itoa(chatMaxRunes) + " 字"
 	}
-	mod := canModerate(fresh, ch)
+	mod := s.isChannelMod(ctx, fresh, ch)
 	if !mod {
+		if banned, until := s.Store.ChannelBanUntil(ctx, ch.ID, fresh.ID); banned {
+			if until == nil {
+				return "chat_banned", "你已被禁止在该频道发言"
+			}
+			return "timed_out", "你已被禁言，剩余 " + strconv.FormatInt(*until-time.Now().Unix(), 10) + " 秒"
+		}
 		if !s.chatLimiter.Allow(strconv.FormatInt(u.ID, 10)) {
 			return "rate_limited", "发言太快了"
 		}
@@ -229,7 +241,7 @@ func (s *Server) handleDeleteChat(w http.ResponseWriter, r *http.Request, u *sto
 		s.internalError(w, r, err)
 		return
 	}
-	if !canModerate(u, ch) {
+	if !s.isChannelMod(r.Context(), u, ch) {
 		writeError(w, http.StatusForbidden, "forbidden", "无权删除该消息")
 		return
 	}

@@ -80,6 +80,24 @@ func (s *Store) ListVODs(ctx context.Context, channelID int64, limit, offset int
 	return out, rows.Err()
 }
 
+// VODsBefore 创建时间早于 cutoff 的录像（保留期清理）。
+func (s *Store) VODsBefore(ctx context.Context, cutoff int64) ([]*VOD, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT `+vodCols+vodFrom+`WHERE v.created_at < ? ORDER BY v.id LIMIT 500`, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []*VOD{}
+	for rows.Next() {
+		v, err := scanVOD(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) DeleteVOD(ctx context.Context, id int64) error {
 	_, err := s.DB.ExecContext(ctx, `DELETE FROM vods WHERE id = ?`, id)
 	return err

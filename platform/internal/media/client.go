@@ -112,6 +112,18 @@ func (c *Client) StartABR(ctx context.Context, key, profiles string) error {
 	return nil
 }
 
+// StopABR 关闭多清晰度转码（下播后调用，下次开播可重新开启）。
+func (c *Client) StopABR(ctx context.Context, key string) error {
+	code, err := c.do(ctx, http.MethodDelete, "/api/abr/"+url.PathEscape(key), nil)
+	if err != nil {
+		return err
+	}
+	if code != http.StatusOK {
+		return fmt.Errorf("DELETE /api/abr: HTTP %d", code)
+	}
+	return nil
+}
+
 // Healthy 媒体服务器是否可访问。
 func (c *Client) Healthy(ctx context.Context) bool {
 	code, err := c.do(ctx, http.MethodGet, "/api/health", nil)

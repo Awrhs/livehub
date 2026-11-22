@@ -34,6 +34,9 @@ type Config struct {
 	MediaDVRDir     string
 
 	FFmpeg string // 截取封面使用的 ffmpeg
+	FFprobe string
+	// 外部模式：媒体服务器 INTERNAL_PUBLISH_TOKEN（多清晰度转码回推时携带）
+	InternalToken string
 
 	TrustProxy    bool   // 信任 X-Forwarded-For / X-Forwarded-Proto（部署在反向代理后）
 	SecureCookies string // auto | true | false
@@ -85,6 +88,8 @@ func Load() (*Config, error) {
 		HookURL:         strings.TrimRight(env("LIVEHUB_HOOK_URL", ""), "/"),
 		MediaDVRDir:     env("LIVEHUB_MEDIA_DVR_DIR", ""),
 		FFmpeg:          env("LIVEHUB_FFMPEG", "ffmpeg"),
+		FFprobe:         env("LIVEHUB_FFPROBE", "ffprobe"),
+		InternalToken:   env("LIVEHUB_MEDIA_INTERNAL_TOKEN", ""),
 		TrustProxy:      envBool("LIVEHUB_TRUST_PROXY", false),
 		SecureCookies:   strings.ToLower(env("LIVEHUB_SECURE_COOKIES", "auto")),
 		LogLevel:        env("LIVEHUB_LOG_LEVEL", "info"),
