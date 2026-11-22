@@ -38,6 +38,8 @@ type Config struct {
 	// 外部模式：媒体服务器 INTERNAL_PUBLISH_TOKEN（多清晰度转码回推时携带）
 	InternalToken string
 
+	// 边缘播放节点（逗号分隔的对外基础地址，如 https://edge1.example.com）；为空则全部由本机分发
+	EdgeURLs []string
 	TrustProxy    bool   // 信任 X-Forwarded-For / X-Forwarded-Proto（部署在反向代理后）
 	SecureCookies string // auto | true | false
 	BcryptCost    int
@@ -128,6 +130,11 @@ func Load() (*Config, error) {
 		// 外部模式：密钥必须显式配置，且两端一致
 		if c.MediaAdminToken == "" || c.HookSecret == "" {
 			return nil, fmt.Errorf("外部媒体服务器模式需要 LIVEHUB_MEDIA_ADMIN_TOKEN 与 LIVEHUB_HOOK_SECRET")
+		}
+	}
+	for _, e := range strings.Split(env("LIVEHUB_EDGE_URLS", ""), ",") {
+		if e = strings.TrimRight(strings.TrimSpace(e), "/"); e != "" {
+			c.EdgeURLs = append(c.EdgeURLs, e)
 		}
 	}
 	switch c.SecureCookies {

@@ -1,0 +1,12 @@
+.git
+.github
+**/node_modules
+web/dist
+web/test-results
+web/playwright-report
+cpp/build
+cpp/cmake-build-*
+platform/livehub
+platform/data
+data
+docs

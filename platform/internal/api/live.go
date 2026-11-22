@@ -192,6 +192,7 @@ func (s *Server) RunBackground(ctx context.Context) {
 	defer viewers.Stop()
 	defer cleanup.Stop()
 	last := map[int64]int{}
+	go s.runEdgeChecks(ctx)
 	for {
 		select {
 		case <-ctx.Done():

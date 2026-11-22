@@ -112,6 +112,7 @@ void Fmp4Recorder::stop() {
 
 void Fmp4Recorder::ensureInit() {
     if (inited_ || avcc_.empty()) return;
+    initHasAudio_ = hasAudio_ && !asc_.empty();
     auto moov = writer_.buildMoov(kVideoTimescale, avcc_, opt_.width,
                                   opt_.height, hasAudio_ && !asc_.empty(),
                                   audioTimescale_, asc_, opt_.audioSampleRate,
@@ -207,7 +208,7 @@ void Fmp4Recorder::handleVideo(const MediaPacket& pkt) {
             std::lock_guard<std::mutex> lk(mu_);
             isHevc_ = true;
             avcc_.assign(vi.payload, vi.payload + vi.payloadLen);
-            ensureInit();
+            // 不在此处写 moov：等首个视频帧再初始化，给音频 sequence header 留出到达时间
             return;
         }
         if (vi.packetType != EnhancedRtmp::kPktCodedFrames &&
@@ -254,7 +255,8 @@ void Fmp4Recorder::handleVideo(const MediaPacket& pkt) {
         std::lock_guard<std::mutex> lk(mu_);
         isHevc_ = false;
         if (n > 5) avcc_.assign(d + 5, d + n);
-        ensureInit();
+        // 同上：推迟到首个视频帧初始化。原实现在此立即写 moov，若音频 sequence header
+        // 稍后才到，moov 中没有音频轨，但后续仍写入 track 2 的音频分片，文件无法解析
         return;
     }
     if (avcType != 1) return;  // AVC end / 其它
@@ -380,6 +382,12 @@ void Fmp4Recorder::flushFragment(bool force) {
         out.insert(out.end(), v.begin(), v.end());
     }
     uint32_t aFrag = 0;
+    // moov 未包含音频轨（初始化时尚无音频配置）：丢弃音频，保证文件可解析
+    if (!initHasAudio_) {
+        audioSamples_.clear();
+        audioDts_.clear();
+        audioMdat_.clear();
+    }
     if (!audioSamples_.empty()) {
         aFrag = fragSeq_++;
         auto a = writer_.buildAudioFragment(aFrag, 2, audioBaseDts_,

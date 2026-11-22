@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"livehub/internal/api"
+	"livehub/internal/auth"
 	"livehub/internal/chat"
 	"livehub/internal/config"
 	"livehub/internal/db"
@@ -34,10 +35,91 @@ func main() {
 		fmt.Println(version)
 		return
 	}
+	if flag.NArg() > 0 {
+		if err := runCommand(flag.Args()); err != nil {
+			fmt.Fprintln(os.Stderr, "livehub:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "livehub:", err)
 		os.Exit(1)
 	}
+}
+
+const usage = `用法：
+  livehub                                 启动服务（配置见环境变量 LIVEHUB_*）
+  livehub backup <目标文件>               在线备份数据库（服务运行中也可执行）
+  livehub reset-password <用户名> <新密码>  重置用户密码并注销其全部会话
+  livehub make-admin <用户名>             将用户设为管理员
+  livehub -version                        打印版本`
+
+// runCommand 运维子命令（直接操作数据目录中的数据库）。
+func runCommand(args []string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	sqlDB, err := db.Open(cfg.DBPath())
+	if err != nil {
+		return err
+	}
+	defer sqlDB.Close()
+	st := store.New(sqlDB)
+	ctx := context.Background()
+	switch args[0] {
+	case "backup":
+		if len(args) != 2 {
+			return fmt.Errorf("%s", usage)
+		}
+		if _, err := os.Stat(args[1]); err == nil {
+			return fmt.Errorf("目标文件已存在：%s", args[1])
+		}
+		// VACUUM INTO 生成一致的数据库快照，不阻塞正在运行的服务
+		if _, err := sqlDB.ExecContext(ctx, `VACUUM INTO ?`, args[1]); err != nil {
+			return err
+		}
+		fmt.Println("已备份到", args[1], "（录像与封面位于", cfg.VODDir(), "和", cfg.ThumbDir(), "，请一并备份）")
+	case "reset-password":
+		if len(args) != 3 {
+			return fmt.Errorf("%s", usage)
+		}
+		u, err := st.UserByName(ctx, args[1])
+		if err != nil {
+			return fmt.Errorf("用户不存在：%s", args[1])
+		}
+		if err := auth.ValidatePassword(args[2]); err != nil {
+			return err
+		}
+		hash, err := auth.HashPassword(args[2], cfg.BcryptCost)
+		if err != nil {
+			return err
+		}
+		if err := st.UpdatePassword(ctx, u.ID, hash); err != nil {
+			return err
+		}
+		_ = st.DeleteUserSessions(ctx, u.ID, "")
+		st.Audit(ctx, 0, "cli.reset_password", u.Username, "")
+		fmt.Println("已重置", u.Username, "的密码")
+	case "make-admin":
+		if len(args) != 2 {
+			return fmt.Errorf("%s", usage)
+		}
+		u, err := st.UserByName(ctx, args[1])
+		if err != nil {
+			return fmt.Errorf("用户不存在：%s", args[1])
+		}
+		role, banned := store.RoleAdmin, false
+		if err := st.PatchUser(ctx, u.ID, store.UserPatch{Role: &role, Banned: &banned}); err != nil {
+			return err
+		}
+		st.Audit(ctx, 0, "cli.make_admin", u.Username, "")
+		fmt.Println(u.Username, "已成为管理员")
+	default:
+		return fmt.Errorf("未知命令 %q\n%s", args[0], usage)
+	}
+	return nil
 }
 
 func newLogger(level string) *slog.Logger {

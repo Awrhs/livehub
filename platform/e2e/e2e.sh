@@ -60,8 +60,23 @@ push() { # push <推流码> <秒数> <日志名>
     -f flv "$RTMP/$1" >"$ART/$3.log" 2>&1
 }
 
+echo "== 启动边缘媒体节点（回源到平台）"
+mkdir -p "$WORK/edge"
+cat >"$WORK/edge/edge.conf" <<EOF
+HTTP_PORT=8082
+RTMP_PORT=1936
+SRT_PORT=0
+RTSP_PORT=0
+ORIGIN_URL=http://127.0.0.1:8000
+NODE_ID=edge-1
+HLS_OUTPUT_DIR=$WORK/edge/hls
+DVR_DIR=$WORK/edge/dvr
+EOF
+(cd "$WORK/edge" && exec "$MEDIA_BIN" edge.conf >"$ART/edge.log" 2>&1) &
+PIDS+=($!)
+
 echo "== 启动 LiveHub（内嵌媒体服务器）"
-LIVEHUB_ADDR=:8000 LIVEHUB_DATA_DIR="$WORK/data" LIVEHUB_MEDIA_BIN="$MEDIA_BIN" \
+LIVEHUB_EDGE_URLS=http://127.0.0.1:8082 LIVEHUB_ADDR=:8000 LIVEHUB_DATA_DIR="$WORK/data" LIVEHUB_MEDIA_BIN="$MEDIA_BIN" \
   LIVEHUB_MEDIA_RTMP_PORT=1935 LIVEHUB_MEDIA_HTTP_PORT=8081 LIVEHUB_MEDIA_SRT_PORT=10080 \
   LIVEHUB_BCRYPT_COST=4 LIVEHUB_LOG_LEVEL=debug \
   "$LIVEHUB_BIN" >"$WORK/livehub.log" 2>&1 &
@@ -133,6 +148,16 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/live/bob.flv")
 [ "$code" = "405" ] && pass "播放代理拒绝非 GET" || fail "播放代理 POST 返回 $code"
 code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/live/../api/streams")
 [ "$code" != "200" ] && pass "播放代理不暴露媒体管理 API" || fail "播放代理泄露管理 API"
+
+echo "== 边缘节点分发"
+EFLV=$(curl -s "$BASE/api/v1/channels/bob" | jq -r .channel.playback.flv)
+if [[ "$EFLV" == http://127.0.0.1:8082/live/bob.flv ]]; then pass "播放地址指向边缘节点"; else fail "播放地址=$EFLV"; fi
+if ffprobe -v error -rw_timeout 15000000 -show_entries stream=codec_name -of csv=p=0 "http://127.0.0.1:8082/live/bob.flv" >"$WORK/edge.txt" 2>&1 &&
+  grep -q h264 "$WORK/edge.txt"; then
+  pass "边缘节点回源播放 HTTP-FLV"
+else
+  fail "边缘播放失败: $(cat "$WORK/edge.txt" | head -5)"
+fi
 
 echo "== 同名重复推流被拒绝"
 timeout 15 bash -c "$(declare -f push); RTMP=$RTMP ART=$ART push '$KEY' 5 push_dup"

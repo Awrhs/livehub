@@ -62,6 +62,12 @@ func (s *Server) handleChatWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := currentUser(r)
+	ip := s.clientIP(r)
+	if !s.acquireWS(ip) {
+		writeError(w, http.StatusTooManyRequests, "rate_limited", "来自该地址的连接过多")
+		return
+	}
+	defer s.releaseWS(ip)
 	conn, err := websocket.Accept(w, r, nil) // 默认校验 Origin 与 Host 一致
 	if err != nil {
 		return
@@ -151,6 +157,27 @@ func (s *Server) handleChatWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	_ = conn.Close(websocket.StatusNormalClosure, "")
+}
+
+// 单个 IP 最多同时保持的聊天连接数（同一 NAT 下的多名观众仍可正常使用）
+const maxWSPerIP = 50
+
+func (s *Server) acquireWS(ip string) bool {
+	s.wsMu.Lock()
+	defer s.wsMu.Unlock()
+	if s.wsPerIP[ip] >= maxWSPerIP {
+		return false
+	}
+	s.wsPerIP[ip]++
+	return true
+}
+
+func (s *Server) releaseWS(ip string) {
+	s.wsMu.Lock()
+	defer s.wsMu.Unlock()
+	if s.wsPerIP[ip]--; s.wsPerIP[ip] <= 0 {
+		delete(s.wsPerIP, ip)
+	}
 }
 
 // postChat 校验并发布一条聊天消息；失败返回错误码与提示。

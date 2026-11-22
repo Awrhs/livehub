@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"livehub/internal/auth"
@@ -199,6 +200,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &c) {
 		return
 	}
+	name := strings.ToLower(strings.TrimSpace(c.Username))
+	if s.loginLocked(name) {
+		writeError(w, http.StatusTooManyRequests, "account_locked", "该账号登录失败次数过多，请 15 分钟后再试")
+		return
+	}
 	u, err := s.Store.UserByName(r.Context(), strings.TrimSpace(c.Username))
 	if err != nil && !isNotFound(err) {
 		s.internalError(w, r, err)
@@ -210,9 +216,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !auth.CheckPassword(u.PasswordHash, c.Password) {
+		s.recordLoginFailure(name)
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "用户名或密码错误")
 		return
 	}
+	s.clearLoginFailures(name)
 	if u.Banned {
 		msg := "账号已被封禁"
 		if u.BanReason != "" {
@@ -222,6 +230,46 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.startSession(w, r, u, http.StatusOK)
+}
+
+const (
+	loginMaxFailures = 8
+	loginWindow      = 15 * time.Minute
+)
+
+func (s *Server) recentFailures(name string, now time.Time) []time.Time {
+	var kept []time.Time
+	for _, t := range s.loginFailures[name] {
+		if now.Sub(t) < loginWindow {
+			kept = append(kept, t)
+		}
+	}
+	return kept
+}
+
+func (s *Server) loginLocked(name string) bool {
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
+	f := s.recentFailures(name, time.Now())
+	if len(f) == 0 {
+		delete(s.loginFailures, name)
+	} else {
+		s.loginFailures[name] = f
+	}
+	return len(f) >= loginMaxFailures
+}
+
+func (s *Server) recordLoginFailure(name string) {
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
+	now := time.Now()
+	s.loginFailures[name] = append(s.recentFailures(name, now), now)
+}
+
+func (s *Server) clearLoginFailures(name string) {
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
+	delete(s.loginFailures, name)
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {

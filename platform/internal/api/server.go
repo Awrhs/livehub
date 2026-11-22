@@ -47,6 +47,16 @@ type Server struct {
 	missing  map[int64]int // 对账：频道连续缺席次数
 	chanLock sync.Map      // 频道 ID → *sync.Mutex，串行化同一频道的开播/下播处理
 
+	// 账号级登录失败锁定（防止针对单个账号的分布式暴力破解；按 IP 的限流挡不住）
+	loginMu       sync.Mutex
+	loginFailures map[string][]time.Time
+
+	// 每 IP 的聊天连接数上限
+	wsMu    sync.Mutex
+	wsPerIP map[string]int
+
+	edges []*edge
+
 	stateMu  sync.Mutex
 	streams  map[string]*streamState // 频道 → 开播期间的录像/转码状态
 	abrReady map[string]bool
@@ -72,11 +82,14 @@ func New(cfg *config.Config, st *store.Store, mc *media.Client, hub *chat.Hub, l
 		lastSent:        map[[2]int64]time.Time{},
 		missing:         map[int64]int{},
 		streams:         map[string]*streamState{},
+		loginFailures:   map[string][]time.Time{},
+		wsPerIP:         map[string]int{},
 		abrReady:        map[string]bool{},
 	}
 	if mc != nil {
 		s.proxy = newPlaybackProxy(cfg.MediaURL, log)
 	}
+	s.initEdges()
 	return s
 }
 

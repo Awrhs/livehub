@@ -91,6 +91,7 @@ private:
     std::vector<uint8_t> avcc_;   // AVC AVCDecoderConfigurationRecord 或 HEVC hvCC
     std::vector<uint8_t> asc_;
     bool hasAudio_ = false;
+    bool initHasAudio_ = false;  // 已写出的 moov 是否包含音频轨
 
     // video timescale 90000
     static constexpr uint32_t kVideoTimescale = 90000;

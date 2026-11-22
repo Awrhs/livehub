@@ -12,7 +12,8 @@ import (
 type playback struct {
 	HLS string `json:"hls"`
 	FLV string `json:"flv"`
-	ABR string `json:"abr,omitempty"` // 多清晰度主播放列表（开启转码且就绪时）
+	ABR  string `json:"abr,omitempty"`  // 多清晰度主播放列表（开启转码且就绪时）
+	Edge string `json:"edge,omitempty"` // 分发该频道的边缘节点
 }
 
 type channelView struct {
@@ -25,7 +26,9 @@ type channelView struct {
 func (s *Server) channelView(c *store.Channel) channelView {
 	v := channelView{Channel: c, Viewers: s.Hub.Count(c.ID)}
 	if c.IsLive {
-		v.Playback = &playback{HLS: "/live/" + c.Slug + ".m3u8", FLV: "/live/" + c.Slug + ".flv", ABR: s.abrURL(c.Slug)}
+		base := s.pickEdge(c.Slug) // 有健康边缘节点时由边缘分发（多清晰度仍由源站提供）
+		v.Playback = &playback{HLS: base + "/live/" + c.Slug + ".m3u8", FLV: base + "/live/" + c.Slug + ".flv",
+			ABR: s.abrURL(c.Slug), Edge: base}
 		v.Thumbnail = s.thumbURL("live_" + c.Slug + ".jpg")
 	}
 	return v

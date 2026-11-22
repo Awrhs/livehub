@@ -1,0 +1,23 @@
+# LiveHub 一键部署（单容器：平台 + 媒体服务器）。
+#
+#   cp .env.example .env   # 按需修改
+#   docker compose up -d
+#
+# 首次访问 http://<服务器>:8000 注册的第一个账号即为管理员。
+services:
+  livehub:
+    image: ghcr.io/awrhs/livehub:latest
+    container_name: livehub
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "8000:8000"        # 网页、播放（建议前置 Caddy/Nginx 提供 HTTPS，见 Caddyfile）
+      - "1935:1935"        # RTMP 推流（OBS）
+      - "10080:10080/udp"  # SRT 推流（可选）
+    volumes:
+      - livehub-data:/data # 数据库、录像、封面
+
+volumes:
+  livehub-data:

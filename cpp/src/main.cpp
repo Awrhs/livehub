@@ -673,7 +673,9 @@ int main(int argc, char* argv[]) {
     auto abrManager = std::make_shared<AbrManager>(
         transcodeManager.get(),
         "rtmp://127.0.0.1:" + std::to_string(cfg.rtmpPort()),
-        "http://127.0.0.1:" + std::to_string(cfg.httpPort()));
+        // 主播放列表中的子播放列表使用站内绝对路径（/live/<变体>.m3u8），
+        // 由播放器按主播放列表的来源解析；原实现写死 http://127.0.0.1:<端口>，浏览器无法访问
+        "");
 
     // 统计 API + ABR 主播放列表
     StreamsApi streamsApi;

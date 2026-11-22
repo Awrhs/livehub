@@ -1,0 +1,8 @@
+# Caddy 反向代理示例：自动申请 HTTPS 证书。
+# RTMP/SRT 推流端口不经过 Caddy，直接映射到 LiveHub 容器。
+live.example.com {
+	reverse_proxy livehub:8000 {
+		# HTTP-FLV 为长连接流，立即刷新
+		flush_interval -1
+	}
+}
