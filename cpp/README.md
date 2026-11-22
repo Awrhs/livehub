@@ -1,5 +1,20 @@
 # Streaming Media Server (C++17)
 
+> **Status (2026-11)** — every module below is now verified end-to-end in CI on every push
+> (ASan, TSan, 6-minute soak, Docker smoke, third-party clients: ffmpeg/ffprobe, aiortc).
+> See [ROADMAP.md](ROADMAP.md) for what was broken, what was fixed, and what is still open.
+>
+> | Verified | Notes |
+> |---|---|
+> | RTMP ingest (H.264/AAC, H.265 via Enhanced RTMP) | simple + complex handshake |
+> | RTMP / HTTP-FLV / WS-FLV / HLS / RTSP playback | B-frames, 48 kHz stereo, 8 concurrent viewers |
+> | SRT ingest + playback (libsrt) | |
+> | WebRTC WHIP ingest / WHEP playback | video only (H.264) |
+> | DVR (fMP4), ABR transcode (external ffmpeg) | |
+> | Origin–edge cluster (on-demand pull for FLV/RTMP/HLS) | |
+> | Auth (admin token, per-stream JWT with stream/scope), webhooks, rate limits, connection limits | |
+> | Slow-viewer backpressure, idle timeout, graceful shutdown with live sessions, SIGHUP vhost reload | |
+
 A from-scratch, high-concurrency live streaming media server written in C++17.
 RTMP / SRT / WebRTC-WHIP ingest → HLS / HTTP-FLV / WebSocket-FLV / RTSP /
 WebRTC-WHEP / SRT egress, DVR/fMP4 recording + timeshift, optional ABR

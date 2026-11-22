@@ -10,7 +10,9 @@ DVR/fMP4 录制与时移、ABR 转码、vhost 多租户、HTTP webhook、源站-
 STUN/DTLS/SRTP/RTP、RTSP、HTTP）；FFmpeg/libav 与 OpenSSL 为可选依赖，
 缺失时自动降级为 stub，可无依赖编译。
 
-完整文档见 **[cpp/README.md](cpp/README.md)**。
+完整文档见 **[cpp/README.md](cpp/README.md)**；生产可用性的差距分析、已修复问题与待办见
+**[cpp/ROADMAP.md](cpp/ROADMAP.md)**。所有功能在每次推送时由 GitHub Actions 端到端验证
+（ASan / TSan / 6 分钟 soak / Docker 冒烟 / ffmpeg 与 aiortc 第三方客户端）。
 
 ## 快速开始
 

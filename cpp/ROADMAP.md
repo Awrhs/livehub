@@ -33,7 +33,8 @@
 | 限流（API 429、不误伤播放）、连接数上限（全局/单 IP） | ✅ | 运维 E2E |
 | WebRTC：WHIP 推流 → FLV/HLS、WHEP 拉流（与 aiortc 第三方实现互通，仅视频 H.264） | ✅ | 扩展 E2E |
 | 源站-边缘集群：边缘按需回源（HTTP-FLV / RTMP / HLS），不存在的流不形成重连风暴 | ✅ | 扩展 E2E |
-| 转码 / ABR / 负载均衡与健康检查 | ⚠️ 编译通过，未经验证 | — |
+| 转码 / ABR（外部 ffmpeg，变体流 + master playlist） | ✅ | 扩展 E2E |
+| 集群负载均衡 / 健康检查 / 反向代理 / 多平台转推 | ⚠️ 编译通过，未经验证 | — |
 
 ### 第一轮已修复的致命问题（节选）
 
@@ -120,7 +121,9 @@
 - [ ] WebRTC：NACK 重传、TWCC/REMB 拥塞控制、DELETE 结束会话（WHIP/WHEP 规范）
 - [x] RTSP 拉流 E2E
 - [x] DVR / fMP4 录制产物可播放（修复 trun 标志位、非关键帧起录、音视频基准不一致）
-- [ ] 转码 / ABR
+- [x] 转码 / ABR：修复变体流名重复追加档位后缀、进程内 libav 输出从未接通却报“完成”
+      （统一走外部 ffmpeg）、路由首个匹配导致 master.m3u8 被遮蔽（改为特异性匹配）
+- [ ] 进程内 libav 转码接入分发链（减少进程开销）
 - [x] 源站-边缘集群 E2E（两个实例）：修复边缘首次回源即 abort（bad_weak_ptr）、FlvDemuxer
       在二进制流中二次“跳过 HTTP 头”导致无法解析、404 时无间隔重连风暴、RTMP/HLS 不回源、
       SO_REUSEPORT 默认开启导致端口冲突静默分流、bind 失败被忽略
