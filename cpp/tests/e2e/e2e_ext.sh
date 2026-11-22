@@ -144,6 +144,7 @@ cat >"$WORK/edge.conf" <<EOF2
 HTTP_PORT=$EHTTP
 RTMP_PORT=$ERTMP
 SRT_PORT=59535
+RTSP_PORT=0
 IO_THREADS=2
 HLS_OUTPUT_DIR=$WORK/edge_hls
 JWT_SECRET=edge-secret-edge-secret-edge-secret

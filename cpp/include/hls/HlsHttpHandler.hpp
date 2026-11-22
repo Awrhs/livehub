@@ -44,6 +44,10 @@ public:
                                         bool hlsPoll, std::string* reason)>;
     void setPlayAuth(PlayAuth a) { playAuth_ = std::move(a); }
 
+    /// 本地无 HLS 源时的按需回调（边缘节点：回源拉流并建立 HLS 桥接）
+    using OnDemand = std::function<void(const std::string& key)>;
+    void setOnDemand(OnDemand f) { onDemand_ = std::move(f); }
+
     void registerRoutes(HttpServer& server);
 
 private:
@@ -55,6 +59,7 @@ private:
     StreamCache* cache_;
     StreamResolver flvResolver_;
     PlayAuth playAuth_;
+    OnDemand onDemand_;
     bool checkAuth(const HttpRequest& req, const std::string& key, bool hlsPoll,
                    HttpResponse& resp);
 };

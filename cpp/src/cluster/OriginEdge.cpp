@@ -32,6 +32,11 @@ struct OriginEdge::PullSession
           loop(l) {
         stream = std::make_shared<MediaStream>(key, app);
         stream->setHasPublisher(true);
+    }
+
+    // 必须在对象被 shared_ptr 接管后调用：构造函数中调用 shared_from_this()
+    // 会抛 std::bad_weak_ptr（原实现边缘节点首次回源即 abort）
+    void start() {
         client = std::make_unique<TcpClient>(loop, host, port,
                                               "edge-" + key);
         client->enableRetry(true);  // 源站断开时自动重连（指数退避）
@@ -190,6 +195,7 @@ std::shared_ptr<MediaStream> OriginEdge::getOrPull(
     }
     auto sess = std::make_shared<PullSession>(loop_, key, originHost_,
                                                originPort_, app_);
+    sess->start();
     sess->acquire();
     sessions_[key] = sess;
     LOG_INFO("OriginEdge: start pull %s from %s:%u", key.c_str(),

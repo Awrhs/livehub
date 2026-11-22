@@ -48,6 +48,9 @@ public:
     void setPlayHandler(PlayHandler h) { onPlay_ = std::move(h); }
     void setUnpublishHandler(UnpublishHandler h) { onUnpublish_ = std::move(h); }
     void setAuthHandler(AuthHandler h) { onAuth_ = std::move(h); }
+    /// 播放流解析（可选）：默认只查本地流表；边缘节点据此按需回源
+    using PlayResolver = std::function<std::shared_ptr<MediaStream>(const std::string& key)>;
+    void setPlayResolver(PlayResolver r) { playResolver_ = std::move(r); }
     /// 设置 vhost 解析器（按 host 返回 Vhost），用于连接关闭时回收配额。
     using VhostResolver = std::function<VhostPtr(const std::string& host)>;
     void setVhostResolver(VhostResolver r) { vhostResolver_ = std::move(r); }
@@ -79,6 +82,7 @@ private:
     PlayHandler onPlay_;
     UnpublishHandler onUnpublish_;
     AuthHandler onAuth_;
+    PlayResolver playResolver_;
     VhostResolver vhostResolver_;
 
     VhostPtr resolveVhost(const std::string& host) const {

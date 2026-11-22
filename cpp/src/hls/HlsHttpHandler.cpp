@@ -86,6 +86,8 @@ bool HlsHttpHandler::servePlaylist(const std::string& stream,
     }
     auto src = manager_->find(stream);
     if (!src) {
+        // 边缘节点：触发回源；首个分片就绪前返回 404，播放器会重试
+        if (onDemand_) onDemand_(stream);
         resp.setStatusCode(HttpStatusCode::k404NotFound);
         resp.setContentType("application/json");
         resp.setBody("{\"error\":\"stream not found\"}");

@@ -78,6 +78,7 @@ public:
 
     // SRT 接入端口（UDP）
     uint16_t srtPort() const { return srtPort_; }
+    uint16_t rtspPort() const { return rtspPort_; }  // 0 = 关闭 RTSP
 
     // Redis（HOST 为空 = 禁用，纯单机内存模式）
     std::string redisHost() const { return redisHost_; }
@@ -139,6 +140,7 @@ private:
     int transcodeTaskTtlSec_ = 3600;
 
     uint16_t srtPort_ = 19535;
+    uint16_t rtspPort_ = 8554;
 
     std::string redisHost_;
     uint16_t redisPort_ = 6379;

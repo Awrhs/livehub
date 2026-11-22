@@ -177,6 +177,7 @@ void Config::loadFromEnv() {
     transcodeTaskTtlSec_ =
         getEnvInt("STREAM_TRANSCODE_TASK_TTL_SEC", transcodeTaskTtlSec_);
     srtPort_ = static_cast<uint16_t>(getEnvInt("STREAM_SRT_PORT", srtPort_));
+    rtspPort_ = static_cast<uint16_t>(getEnvInt("STREAM_RTSP_PORT", rtspPort_));
     v = getEnv("STREAM_REDIS_HOST", "");
     if (!v.empty()) redisHost_ = v;
     redisPort_ =
@@ -221,6 +222,7 @@ void Config::applyKv(const std::string& keyIn, const std::string& value) {
     else if (key == "TRANSCODE_CONCURRENCY") transcodeConcurrency_ = asInt();
     else if (key == "TRANSCODE_TASK_TTL_SEC") transcodeTaskTtlSec_ = asInt();
     else if (key == "SRT_PORT") srtPort_ = static_cast<uint16_t>(asInt());
+    else if (key == "RTSP_PORT") rtspPort_ = static_cast<uint16_t>(asInt());
     else if (key == "REDIS_HOST") redisHost_ = value;
     else if (key == "REDIS_PORT")
         redisPort_ = static_cast<uint16_t>(asInt());

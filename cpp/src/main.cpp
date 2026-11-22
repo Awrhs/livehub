@@ -263,6 +263,10 @@ int main(int argc, char* argv[]) {
         if (edge) return edge->getOrPull(key);
         return nullptr;
     };
+    // RTMP 播放走统一解析（边缘节点按需回源）
+    rtmpServer->setPlayResolver([&](const std::string& key) {
+        return resolvePlayStream(key);
+    });
 
     // 推流 -> HLS 桥接（每路流一个 RtmpToHls）
     std::mutex bridgesMu;
@@ -574,6 +578,22 @@ int main(int argc, char* argv[]) {
                                /*countQuota=*/false, /*callHook=*/!hlsPoll);
     };
     hlsHandler.setPlayAuth(httpPlayAuth);
+    // 边缘节点 HLS：按需回源并为回源流建立 HLS 桥接
+    hlsHandler.setOnDemand([&](const std::string& key) {
+        if (!edge) return;
+        {
+            std::lock_guard<std::mutex> lk(bridgesMu);
+            if (bridges.count(key)) return;
+        }
+        auto ms = edge->getOrPull(key);
+        if (!ms) return;
+        auto bridge = std::make_shared<RtmpToHls>(
+            ms, hlsManager.get(), cfg.hlsOutputDir(),
+            cfg.hlsSegmentDuration(), cfg.hlsWindowSize());
+        bridge->start();
+        std::lock_guard<std::mutex> lk(bridgesMu);
+        bridges[key] = bridge;
+    });
     hlsHandler.registerRoutes(httpServer);
 
     // WebSocket-FLV 低延迟直播（HTTP Upgrade）
@@ -786,12 +806,15 @@ int main(int argc, char* argv[]) {
     clusterApi.registerRoutes(httpServer);
 
     // ---- RTSP ----
-    auto rtspServer = std::make_shared<RtspServer>(&baseLoop, 8554);
+    std::shared_ptr<RtspServer> rtspServer;
+    if (cfg.rtspPort() > 0) {
+    rtspServer = std::make_shared<RtspServer>(&baseLoop, cfg.rtspPort());
     rtspServer->setThreadNum(cfg.ioThreads());
     rtspServer->setStreamResolver(
         [&](const std::string& key) -> std::shared_ptr<MediaStream> {
             return resolvePlayStream(key);
         });
+    }
 
     // ---- 基础 API ----
     // （/api/health 在 SRT 之后注册：需要统计 RTMP + SRT 两类活跃连接）
@@ -1205,12 +1228,12 @@ int main(int argc, char* argv[]) {
     // ---- 启动 ----
     healthChecker->start();
     rtmpServer->start();
-    rtspServer->start();
+    if (rtspServer) rtspServer->start();
     httpServer.start();
 
-    LOG_INFO("streaming_server ready: http=:%u rtmp=:%u rtsp=:8554 "
-             "srt=:19535 webrtc-udp=50000-50999",
-             cfg.httpPort(), cfg.rtmpPort());
+    LOG_INFO("streaming_server ready: http=:%u rtmp=:%u rtsp=:%u srt=:%u "
+             "webrtc-udp=50000-50999",
+             cfg.httpPort(), cfg.rtmpPort(), cfg.rtspPort(), cfg.srtPort());
     baseLoop.loop();
 
     // ---- 有序关闭 ----
@@ -1219,7 +1242,7 @@ int main(int argc, char* argv[]) {
     LOG_INFO("closing connections and stopping IO threads...");
     httpServer.stop();
     rtmpServer->stop();
-    rtspServer->stop();
+    if (rtspServer) rtspServer->stop();
     srtServer->stop();
     for (const auto& key : hlsManager->keys()) hlsManager->endStream(key);
     transcodeManager->stop();
