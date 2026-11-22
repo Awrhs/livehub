@@ -125,6 +125,7 @@ if $PY -c "import aiortc" 2>/dev/null; then
     sleep 10
     probe whip_flv "http://127.0.0.1:$HTTP/live/whipin.flv" h264 3 30
     probe whip_hls "http://127.0.0.1:$HTTP/live/whipin.m3u8" h264 3 30
+    echo "    whip rtcp: $(grep -ciE 'psfb|pli|keyframe' "$WORK/whip.err") 条 PLI/关键帧相关日志；$(grep -iE 'psfb|pli' "$WORK/whip.err" | head -2 | cut -c1-160 | tr '\n' ' ')"
     $PY "$(dirname "$0")/webrtc_client.py" whep "http://127.0.0.1:$HTTP/whep/avc" 6 >"$WORK/whep.out" 2>"$WORK/whep.err"
     W=$(cat "$WORK/whep.out")
     vf=$(echo "$W" | grep -oE 'video_frames=[0-9]+' | cut -d= -f2)

@@ -16,7 +16,7 @@ import sys
 if os.environ.get("WEBRTC_DEBUG"):
     logging.basicConfig(level=logging.DEBUG, stream=sys.stderr,
                         format="%(asctime)s %(name)s %(message)s")
-    for noisy in ("aiortc.rtcrtpreceiver", "aiortc.rtcrtpsender", "asyncio"):
+    for noisy in ("aiortc.rtcrtpreceiver", "asyncio"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 import aiohttp
