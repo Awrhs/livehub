@@ -157,6 +157,9 @@ EDGE_PID=$!
 for _ in $(seq 1 50); do curl -sf --max-time 2 "http://127.0.0.1:$EHTTP/api/health" >/dev/null && break; sleep 0.2; done
 probe edge_flv "http://127.0.0.1:$EHTTP/live/avc.flv" h264 3 50
 probe edge_rtmp "rtmp://127.0.0.1:$ERTMP/live/avc" h264 3 50
+# 边缘 HLS：首个请求触发回源（返回 404），首个分片就绪后可播放（播放器会重试）
+curl -s -o /dev/null --max-time 3 "http://127.0.0.1:$EHTTP/live/avc.m3u8"
+sleep 7
 probe edge_hls "http://127.0.0.1:$EHTTP/live/avc.m3u8" h264 3 50
 curl -s -o /dev/null --max-time 3 "http://127.0.0.1:$EHTTP/live/nosuch.flv"
 sleep 2
