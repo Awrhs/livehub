@@ -48,7 +48,7 @@ jobs:
           if [ -n "$(git status --porcelain)" ]; then
             git config user.name "livehub-bot"
             git config user.email "livehub-bot@users.noreply.github.com"
-            git add -A platform web
+            git add -A -- platform $(test -d web && echo web)
             git commit -m "chore: 更新依赖锁文件与格式化 [skip ci]"
             git pull --rebase origin main && git push origin HEAD:main
           fi
@@ -68,3 +68,69 @@ jobs:
           go mod tidy
           go vet ./...
           go test -race -count=1 ./...
+
+  web:
+    name: 前端构建
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: 安装依赖并构建
+        working-directory: web
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+          retention-days: 3
+
+  e2e:
+    name: 全链路 E2E（平台 + 媒体服务器 + ffmpeg）
+    needs: [go, web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: 安装依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ ccache ffmpeg jq libssl-dev libsrt-openssl-dev libsrtp2-dev
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-release-${{ hashFiles('cpp/src/**', 'cpp/include/**', 'cpp/CMakeLists.txt', 'cpp/src/CMakeLists.txt') }}
+          restore-keys: ccache-release-
+      - name: 构建媒体服务器（Release）
+        env:
+          CCACHE_DIR: ~/.cache/ccache
+        run: |
+          cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTS=OFF -DENABLE_TOOLS=OFF \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build cpp/build --target streaming_server -j"$(nproc)"
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: platform/internal/webui/dist
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: platform/go.mod
+      - name: 构建 LiveHub
+        working-directory: platform
+        run: |
+          go mod tidy
+          go build -o livehub ./cmd/livehub
+      - name: 运行 E2E
+        env:
+          E2E_ARTIFACT_DIR: ${{ github.workspace }}/e2e-artifacts
+        run: platform/e2e/e2e.sh "$PWD/platform/livehub" "$PWD/cpp/build/bin/streaming_server"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: livehub-e2e
+          path: e2e-artifacts
+          retention-days: 7
