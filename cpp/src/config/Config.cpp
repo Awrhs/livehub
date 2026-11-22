@@ -135,6 +135,8 @@ void Config::loadFromEnv() {
     std::string v;
     v = getEnv("STREAM_HLS_OUTPUT_DIR", "");
     if (!v.empty()) hlsOutputDir_ = v;
+    v = getEnv("STREAM_DVR_DIR", "");
+    if (!v.empty()) dvrDir_ = v;
     v = getEnv("STREAM_JWT_SECRET", "");
     if (!v.empty()) jwtSecret_ = v;
     v = getEnv("STREAM_ADMIN_TOKEN", "");
@@ -202,6 +204,7 @@ void Config::applyKv(const std::string& keyIn, const std::string& value) {
     else if (key == "HLS_SEGMENT_DURATION") hlsSegmentDuration_ = asInt();
     else if (key == "HLS_WINDOW_SIZE") hlsWindowSize_ = asInt();
     else if (key == "HLS_OUTPUT_DIR") hlsOutputDir_ = value;
+    else if (key == "DVR_DIR") dvrDir_ = value;
     else if (key == "CACHE_SIZE_MB") cacheSizeMB_ = asInt();
     else if (key == "JWT_SECRET") jwtSecret_ = value;
     else if (key == "ADMIN_TOKEN") adminToken_ = value;
@@ -282,6 +285,7 @@ void Config::applyVhostKv(const VhostPtr& vh, const std::string& keyIn,
     else if (key == "webhook_enabled") w.enabled = asBool();
     else if (key == "webhook_timeout_ms") w.timeoutMs = asInt();
     else if (key == "webhook_max_retries") w.maxRetries = asInt();
+    else if (key == "webhook_fail_closed") w.failClosed = asBool();
 }
 
 }  // namespace streaming

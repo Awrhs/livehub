@@ -44,6 +44,7 @@ public:
     int hlsSegmentDuration() const { return hlsSegmentDuration_; }
     int hlsWindowSize() const { return hlsWindowSize_; }
     std::string hlsOutputDir() const { return hlsOutputDir_; }
+    std::string dvrDir() const { return dvrDir_; }
     int64_t cacheSizeMB() const { return cacheSizeMB_; }
 
     std::string jwtSecret() const { return jwtSecret_; }
@@ -114,6 +115,7 @@ private:
     int hlsSegmentDuration_ = 6;
     int hlsWindowSize_ = 5;
     std::string hlsOutputDir_ = "./hls";
+    std::string dvrDir_ = "./dvr";
     int64_t cacheSizeMB_ = 256;
 
     // 不再内置默认密钥（公开源码中的默认值等于任何人都能伪造 token）

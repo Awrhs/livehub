@@ -232,7 +232,7 @@ int main(int argc, char* argv[]) {
 
     // ---- DVR / 录制 / 时移（提前创建，供推流回调使用）----
     DvrManager::Config dvrCfg;
-    dvrCfg.baseDir = "./dvr";
+    dvrCfg.baseDir = cfg.dvrDir();
     dvrCfg.segmentDurationMs =
         static_cast<uint32_t>(cfg.hlsSegmentDuration() * 1000);
     dvrCfg.timeshiftWindow = static_cast<uint32_t>(cfg.hlsWindowSize() * 2);
@@ -447,8 +447,10 @@ int main(int argc, char* argv[]) {
             WebhookManager::EventMap fields;
             fields["action"] = event;
             fields["app"] = app;
-            fields["stream"] = key;   // 不含查询串，避免 token 泄露给 webhook
+            fields["stream"] = key;   // 流名不含查询串
             fields["vhost"] = vh->name;
+            // 查询串单独传给 webhook（兼容 SRS 的 param 字段），业务平台据此校验推流密钥
+            if (!query.empty()) fields["param"] = "?" + query;
             if (callHook) {
                 auto auth = webhooks->authorize(event, fields, vh->webhooks);
                 if (!auth.allowed) {
@@ -489,6 +491,7 @@ int main(int argc, char* argv[]) {
             fields["app"] = app;
             fields["stream"] = key;
             fields["vhost"] = vh->name;
+            if (!query.empty()) fields["param"] = "?" + query;
             webhooks->authorizeAsync(event, fields, vh->webhooks,
                 [done](const WebhookManager::AuthResult& r) {
                     done(r.allowed, r.allowed ? std::string()

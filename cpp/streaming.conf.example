@@ -16,6 +16,7 @@ IDLE_TIMEOUT=30            # 读写均无进展超过 N 秒断开（0=不超时�
 HLS_SEGMENT_DURATION=6
 HLS_WINDOW_SIZE=5
 HLS_OUTPUT_DIR=./hls
+DVR_DIR=./dvr              # DVR 录像/时移目录
 CACHE_SIZE_MB=256
 
 # JWT 签名密钥（vhost 未单独配置时回落到此值）
@@ -78,6 +79,8 @@ TRANSCODE_TASK_TTL_SEC=3600
 # webhook_enabled=true
 # webhook_timeout_ms=1500
 # webhook_max_retries=3
+# 鉴权类回调（on_publish/on_play）失败或超时时拒绝（业务平台托管推流鉴权时应开启）
+# webhook_fail_closed=false
 # enable_hls=true
 # hls_segment_duration=6
 # hls_window_size=5

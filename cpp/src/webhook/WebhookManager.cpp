@@ -194,16 +194,17 @@ void WebhookManager::notify(const std::string& event, const EventMap& fields,
 }
 
 WebhookManager::AuthResult WebhookManager::authorizeUrl(
-    const std::string& url, int timeoutMs, const EventMap& fields) {
+    const std::string& url, int timeoutMs, bool failClosed, const EventMap& fields) {
     AuthResult result;
-    result.allowed = true;  // fail-open
-    if (url.empty()) return result;
+    result.allowed = true;
+    if (url.empty()) return result;  // 未配置：放行
 
     auto job = std::make_shared<Job>();
     job->url = url;
     job->body = buildBody(fields);
     job->needResult = true;
     job->retries = 0;
+    job->failClosed = failClosed;
     auto sync = std::make_shared<SyncWait>();
     job->sync = sync;
     {
@@ -216,7 +217,12 @@ WebhookManager::AuthResult WebhookManager::authorizeUrl(
     if (!sync->cv.wait_for(lk, std::chrono::milliseconds(timeoutMs + 500),
                            [&] { return sync->done; })) {
         LOG_WARN("webhook authorize timeout url=%s", url.c_str());
-        return result;  // fail-open（sync 由 job 共享持有，worker 稍后写入是安全的）
+        // sync 由 job 共享持有，worker 稍后写入是安全的
+        if (failClosed) {
+            result.allowed = false;
+            result.message = "auth backend timeout";
+        }
+        return result;
     }
     return sync->result;
 }
@@ -231,7 +237,7 @@ WebhookManager::AuthResult WebhookManager::authorize(
         std::lock_guard<std::mutex> lk(cfgMu_);
         cfg = cfg_;
     }
-    return authorizeUrl(urlForEvent(cfg, event), cfg.timeoutMs, fields);
+    return authorizeUrl(urlForEvent(cfg, event), cfg.timeoutMs, cfg.failClosed, fields);
 }
 
 WebhookManager::AuthResult WebhookManager::authorize(
@@ -240,7 +246,7 @@ WebhookManager::AuthResult WebhookManager::authorize(
     AuthResult result;
     result.allowed = true;
     if (!enabled_.load() || !vhostCfg.enabled) return result;
-    return authorizeUrl(urlForEvent(vhostCfg, event), vhostCfg.timeoutMs,
+    return authorizeUrl(urlForEvent(vhostCfg, event), vhostCfg.timeoutMs, vhostCfg.failClosed,
                         fields);
 }
 
@@ -259,6 +265,7 @@ void WebhookManager::authorizeAsync(const std::string& event, const EventMap& fi
     job->body = buildBody(fields);
     job->needResult = true;
     job->retries = 0;
+    job->failClosed = vhostCfg.failClosed;
     job->onDone = std::move(done);
     {
         std::lock_guard<std::mutex> lk(qMu_);
@@ -373,10 +380,11 @@ void WebhookManager::workerLoop() {
 
         if (job->needResult) {
             AuthResult r;
-            if (ok) {
-                if (!parseAllow(resp, r)) r.allowed = true;  // 解析失败 fail-open
-            } else {
-                r.allowed = true;  // 网络失败 fail-open
+            // 网络失败/响应无法解析：默认放行（fail-open），failClosed 时拒绝
+            if (!ok || !parseAllow(resp, r)) {
+                r = AuthResult{};
+                r.allowed = !job->failClosed;
+                if (job->failClosed) r.message = "auth backend unavailable";
             }
             if (job->onDone) job->onDone(r);
             if (job->sync) {

@@ -55,6 +55,9 @@ public:
         int timeoutMs = 1500;       // 单次请求超时
         int maxRetries = 3;         // 异步事件重试次数
         bool enabled = true;
+        /// 鉴权类事件在网络失败/超时/响应无法解析时是否拒绝（默认 false = fail-open）。
+        /// 由业务平台托管推流鉴权时必须开启，否则平台不可用期间任何人都能推流。
+        bool failClosed = false;
     };
 
     explicit WebhookManager(Config cfg);
@@ -111,6 +114,7 @@ private:
         std::string url;
         std::string body;
         bool needResult = false;
+        bool failClosed = false;
         int retries = 0;
         std::shared_ptr<SyncWait> sync;                     // 同步鉴权
         std::function<void(const AuthResult&)> onDone;      // 异步鉴权（在 worker 线程回调）
@@ -128,7 +132,7 @@ private:
     // 内部实现：url 显式传入，支持多 vhost
     void notifyUrl(const std::string& url, int maxRetries,
                    const EventMap& fields);
-    AuthResult authorizeUrl(const std::string& url, int timeoutMs,
+    AuthResult authorizeUrl(const std::string& url, int timeoutMs, bool failClosed,
                             const EventMap& fields);
 
     Config cfg_;
