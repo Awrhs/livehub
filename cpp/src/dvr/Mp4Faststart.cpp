@@ -190,6 +190,25 @@ bool Mp4Faststart::relocate(const std::string& path) {
     }
     ::close(fd);
 
+    // moov 已紧跟 ftyp（如分片 MP4 录像）：无需改写。
+    // 原实现无论是否需要都重写整个文件并 rename，既浪费 IO，
+    // 又会让仍持有旧 fd 的写入方把后续数据写进已被替换的文件。
+    {
+        size_t p = 0;
+        while (p + 8 <= buf.size()) {
+            uint64_t sz = rd32(buf.data() + p);
+            if (sz == 1 && p + 16 <= buf.size()) sz = rd64(buf.data() + p + 8);
+            if (sz < 8) break;
+            const uint8_t* type = buf.data() + p + 4;
+            if (fourcc(type, "ftyp")) {
+                p += static_cast<size_t>(sz);
+                continue;
+            }
+            if (fourcc(type, kMoov)) return true;
+            break;
+        }
+    }
+
     if (!relocateBuffer(buf)) return false;
 
     // 写回临时文件再 rename，保证原子性

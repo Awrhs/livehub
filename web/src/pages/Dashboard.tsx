@@ -1,9 +1,69 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate } from 'react-router-dom'
-import { patch, post, type Me } from '../api'
+import { del, get, patch, post, type Me } from '../api'
 import CopyField from '../components/Copy'
 import { useI18n } from '../i18n'
 import { useSession } from '../session'
+
+interface ModUser {
+  id: number
+  username: string
+  display_name: string
+}
+
+// 频道房管管理
+function Moderators({ slug }: { slug: string }) {
+  const { t, errText } = useI18n()
+  const [list, setList] = useState<ModUser[]>([])
+  const [name, setName] = useState('')
+  const [err, setErr] = useState('')
+  useEffect(() => {
+    get<{ moderators: ModUser[] }>('/channels/' + slug + '/moderators')
+      .then((r) => setList(r.moderators))
+      .catch(() => {})
+  }, [slug])
+  const add = async (e: FormEvent) => {
+    e.preventDefault()
+    setErr('')
+    try {
+      const r = await post<{ moderators: ModUser[] }>('/channels/' + slug + '/moderators', { username: name.trim() })
+      setList(r.moderators)
+      setName('')
+    } catch (e) {
+      setErr(errText(e))
+    }
+  }
+  const remove = async (id: number) => {
+    try {
+      const r = await del<{ moderators: ModUser[] }>('/channels/' + slug + '/moderators/' + id)
+      setList(r.moderators)
+    } catch (e) {
+      setErr(errText(e))
+    }
+  }
+  return (
+    <div className="card">
+      <h2>{t('mod.title')}</h2>
+      <p className="hint">{t('mod.hint')}</p>
+      <form className="row" onSubmit={add} style={{ marginBottom: 12 }}>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('mod.usernamePlaceholder')} required />
+        <button type="submit">{t('mod.add')}</button>
+      </form>
+      {err && <div className="error">{err}</div>}
+      {list.map((m) => (
+        <div className="row" key={m.id} style={{ padding: '6px 0' }}>
+          <span>
+            {m.display_name} <span className="dim">@{m.username}</span>
+          </span>
+          <span className="spacer" />
+          <button className="small" onClick={() => void remove(m.id)}>
+            {t('mod.remove')}
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 export default function Dashboard() {
   const { t, errText } = useI18n()
@@ -132,6 +192,7 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+        <div>
         <form className="card" onSubmit={saveChannel}>
           <h2>{t('dash.channelInfo')}</h2>
           <label className="field">
@@ -154,6 +215,8 @@ export default function Dashboard() {
             {t('common.save')}
           </button>
         </form>
+        <Moderators slug={ch.slug} />
+        </div>
       </div>
     </div>
   )

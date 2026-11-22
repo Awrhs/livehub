@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { get, type Channel } from '../api'
+import { get, type Channel, type VOD } from '../api'
 import ChannelCard from '../components/ChannelCard'
+import VodCard from '../components/VodCard'
 import { useI18n } from '../i18n'
 import { useSession } from '../session'
 
@@ -18,6 +19,13 @@ export default function Home() {
   const [category, setCategory] = useState('')
   const [channels, setChannels] = useState<Channel[] | null>(null)
   const [cats, setCats] = useState<Category[]>([])
+  const [vods, setVods] = useState<VOD[]>([])
+
+  useEffect(() => {
+    get<{ vods: VOD[] }>('/vods?limit=8')
+      .then((r) => setVods(r.vods))
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     let stop = false
@@ -99,6 +107,16 @@ export default function Home() {
           <div className="grid">
             {offline.map((c) => (
               <ChannelCard key={c.id} ch={c} />
+            ))}
+          </div>
+        </>
+      )}
+      {vods.length > 0 && !q && !category && (
+        <>
+          <h2>{t('vod.recent')}</h2>
+          <div className="grid">
+            {vods.map((v) => (
+              <VodCard key={v.id} v={v} />
             ))}
           </div>
         </>

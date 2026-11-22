@@ -125,9 +125,20 @@ jobs:
           go mod tidy
           go build -o livehub ./cmd/livehub
       - name: 运行 E2E
+        id: e2e
         env:
           E2E_ARTIFACT_DIR: ${{ github.workspace }}/e2e-artifacts
         run: platform/e2e/e2e.sh "$PWD/platform/livehub" "$PWD/cpp/build/bin/streaming_server"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: 浏览器 E2E（Playwright + Chrome）
+        if: success() || steps.e2e.conclusion == 'failure'
+        env:
+          E2E_ARTIFACT_DIR: ${{ github.workspace }}/e2e-artifacts
+        run: |
+          cd web && npm install --no-audit --no-fund && cd ..
+          platform/e2e/browser.sh "$PWD/platform/livehub" "$PWD/cpp/build/bin/streaming_server"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

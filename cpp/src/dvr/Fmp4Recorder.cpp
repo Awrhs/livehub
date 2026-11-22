@@ -1,5 +1,8 @@
 #include "dvr/Fmp4Recorder.hpp"
 
+#include <chrono>
+#include <future>
+
 #include "core/AsyncFileWriter.hpp"
 #include "core/Logger.hpp"
 #include "rtmp/AvcParser.hpp"
@@ -95,8 +98,15 @@ void Fmp4Recorder::stop() {
     std::lock_guard<std::mutex> lk(mu_);
     flushFragment(true);
     if (opt_.vodMode && asyncWriter_ && vodFileId_ != 0) {
-        asyncWriter_->close(vodFileId_);
+        // 等待异步写盘全部落地后再返回：调用方（stopRecord）随后会做 faststart、
+        // 业务平台会移动文件；若写入仍在队列中，读到的是不完整文件，
+        // 且后续写入会落到已被改写的文件上，导致录像损坏（trun 找不到 tfhd）。
+        auto done = std::make_shared<std::promise<void>>();
+        auto fut = done->get_future();
+        asyncWriter_->close(vodFileId_, [done](bool, uint64_t) { done->set_value(); });
         vodFileId_ = 0;
+        if (fut.wait_for(std::chrono::seconds(15)) != std::future_status::ready)
+            LOG_WARN("Fmp4Recorder: 等待录像写盘超时: %s", opt_.outputDir.c_str());
     }
 }
 

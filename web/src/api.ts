@@ -61,6 +61,31 @@ export interface ChatMessage {
   ts: number
 }
 
+export interface VOD {
+  id: number
+  channel_id: number
+  channel_slug: string
+  display_name: string
+  title: string
+  category: string
+  duration_sec: number
+  size_bytes: number
+  views: number
+  created_at: number
+  url: string
+  thumbnail?: string
+}
+
+export interface Notification {
+  id: number
+  kind: 'live' | 'stream_approved' | 'stream_rejected' | string
+  channel_slug: string | null
+  channel_name: string | null
+  body: string
+  created_at: number
+  read_at: number | null
+}
+
 export class ApiError extends Error {
   status: number
   code: string

@@ -204,6 +204,55 @@ const zh = {
   'time.minutesAgo': '{n} 分钟前',
   'time.hoursAgo': '{n} 小时前',
   'time.daysAgo': '{n} 天前',
+
+  'follow.follow': '关注',
+  'follow.unfollow': '已关注',
+  'follow.followers': '{n} 位关注者',
+  'follow.title': '我的关注',
+  'follow.empty': '你还没有关注任何频道。',
+  'follow.loginToFollow': '登录后关注',
+
+  'notify.title': '通知',
+  'notify.empty': '暂无通知',
+  'notify.markRead': '全部已读',
+  'notify.live': '{name} 开播了：{title}',
+  'notify.stream_approved': '你的开播申请已通过，现在可以开播了！',
+  'notify.stream_rejected': '你的开播申请未通过。',
+
+  'vod.title': '回放',
+  'vod.recent': '最近回放',
+  'vod.empty': '还没有回放。',
+  'vod.views': '{n} 次观看',
+  'vod.rename': '修改标题',
+  'vod.deleteConfirm': '确定删除这个回放吗？删除后无法恢复。',
+  'vod.notFound': '回放不存在',
+  'vod.liveTab': '直播',
+
+  'report.btn': '举报',
+  'report.prompt': '请填写举报理由：',
+  'report.done': '举报已提交，管理员会尽快处理。',
+
+  'mod.timeout10': '禁言 10 分钟',
+  'mod.ban': '永久禁言',
+  'mod.title': '房管',
+  'mod.hint': '房管可以删除消息、禁言用户。',
+  'mod.add': '添加房管',
+  'mod.usernamePlaceholder': '用户名',
+  'mod.remove': '移除',
+  'mod.banned': '{name} 已被禁言',
+
+  'admin.reports': '举报',
+  'admin.noReports': '没有待处理的举报。',
+  'admin.reportResolve': '已处理',
+  'admin.reportDismiss': '驳回',
+  'admin.reporter': '举报人',
+  'admin.reason': '理由',
+  'admin.statReports': '待处理举报',
+  'admin.vodRetention': '录像保留天数（0 为永久）',
+
+  'err.already_reported': '你已举报过该频道',
+  'err.timed_out': '你已被禁言',
+  'err.chat_banned': '你已被禁止在该频道发言',
 }
 
 export default zh

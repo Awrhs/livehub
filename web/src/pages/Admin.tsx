@@ -5,7 +5,7 @@ import { useI18n } from '../i18n'
 import type { MsgKey } from '../i18n/zh'
 import { useSession } from '../session'
 
-type Tab = 'overview' | 'approvals' | 'users' | 'settings' | 'invites' | 'audit'
+type Tab = 'overview' | 'approvals' | 'users' | 'reports' | 'settings' | 'invites' | 'audit'
 
 interface Stats {
   users: number
@@ -14,6 +14,7 @@ interface Stats {
   pending_requests: number
   media_healthy: boolean
   media_enabled: boolean
+  open_reports: number
 }
 
 export default function Admin() {
@@ -22,7 +23,7 @@ export default function Admin() {
   const [tab, setTab] = useState<Tab>('overview')
   if (!me) return <Navigate to="/login?next=/admin" replace />
   if (me.role !== 'admin') return <p className="error">{t('err.forbidden')}</p>
-  const tabs: Tab[] = ['overview', 'approvals', 'users', 'settings', 'invites', 'audit']
+  const tabs: Tab[] = ['overview', 'approvals', 'users', 'reports', 'settings', 'invites', 'audit']
   return (
     <div>
       <h1>{t('admin.title')}</h1>
@@ -36,6 +37,7 @@ export default function Admin() {
       {tab === 'overview' && <Overview />}
       {tab === 'approvals' && <Users pendingOnly />}
       {tab === 'users' && <Users />}
+      {tab === 'reports' && <Reports />}
       {tab === 'settings' && <SiteSettings />}
       {tab === 'invites' && <Invites />}
       {tab === 'audit' && <Audit />}
@@ -70,6 +72,10 @@ function Overview() {
       <div className="stat">
         <div className="v">{s.pending_requests}</div>
         <div className="k">{t('admin.statPending')}</div>
+      </div>
+      <div className="stat">
+        <div className="v">{s.open_reports}</div>
+        <div className="k">{t('admin.statReports')}</div>
       </div>
       <div className="stat">
         <div className="v" style={{ fontSize: 18, paddingTop: 8 }}>
@@ -310,6 +316,10 @@ function SiteSettings() {
         <input type="number" min={0} max={3600} value={s.chat_slow_mode_sec} onChange={(e) => set('chat_slow_mode_sec', e.target.value)} />
       </label>
       <label className="field">
+        <span>{t('admin.vodRetention')}</span>
+        <input type="number" min={0} max={3650} value={s.vod_retention_days} onChange={(e) => set('vod_retention_days', e.target.value)} />
+      </label>
+      <label className="field">
         <span>{t('admin.blockedWords')}</span>
         <textarea value={s.chat_blocked_words} onChange={(e) => set('chat_blocked_words', e.target.value)} />
       </label>
@@ -319,6 +329,87 @@ function SiteSettings() {
         {t('common.save')}
       </button>
     </form>
+  )
+}
+
+interface Report {
+  id: number
+  reporter_name: string | null
+  channel_slug: string
+  channel_name: string
+  channel_owner_id: number
+  reason: string
+  created_at: number
+}
+
+function Reports() {
+  const { t, errText, ago } = useI18n()
+  const [list, setList] = useState<Report[] | null>(null)
+  const [err, setErr] = useState('')
+  const load = useCallback(() => {
+    get<{ reports: Report[] }>('/admin/reports')
+      .then((r) => setList(r.reports))
+      .catch((e) => setErr(errText(e)))
+  }, [errText])
+  useEffect(load, [load])
+  const resolve = async (id: number, status: string) => {
+    try {
+      await post('/admin/reports/' + id, { status })
+      load()
+    } catch (e) {
+      setErr(errText(e))
+    }
+  }
+  const kick = async (slug: string) => {
+    if (!window.confirm(t('admin.kickConfirm'))) return
+    try {
+      await post('/admin/channels/' + slug + '/kick')
+    } catch (e) {
+      setErr(errText(e))
+    }
+  }
+  if (list === null) return err ? <p className="error">{err}</p> : <p className="dim">{t('common.loading')}</p>
+  if (list.length === 0) return <p className="dim">{t('admin.noReports')}</p>
+  return (
+    <div className="table-wrap">
+      {err && <div className="error">{err}</div>}
+      <table>
+        <thead>
+          <tr>
+            <th>{t('admin.target')}</th>
+            <th>{t('admin.reason')}</th>
+            <th>{t('admin.reporter')}</th>
+            <th>{t('admin.time')}</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {list.map((r) => (
+            <tr key={r.id}>
+              <td>
+                <Link to={'/' + r.channel_slug}>{r.channel_name}</Link>
+              </td>
+              <td style={{ maxWidth: 360, whiteSpace: 'pre-wrap' }}>{r.reason}</td>
+              <td>{r.reporter_name ?? '—'}</td>
+              <td className="dim">{ago(r.created_at)}</td>
+              <td>
+                <div className="row">
+                  <button className="small danger" onClick={() => void kick(r.channel_slug)}>
+                    {t('admin.kick')}
+                  </button>
+                  <button className="small primary" onClick={() => void resolve(r.id, 'resolved')}>
+                    {t('admin.reportResolve')}
+                  </button>
+                  <button className="small" onClick={() => void resolve(r.id, 'dismissed')}>
+                    {t('admin.reportDismiss')}
+                  </button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 

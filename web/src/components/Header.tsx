@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { useSession } from '../session'
 import { useI18n } from '../i18n'
+import NotificationBell from './Notifications'
 
 export default function Header() {
   const { site, me, logout } = useSession()
@@ -35,6 +36,7 @@ export default function Header() {
         <NavLink to="/" end>
           {t('nav.home')}
         </NavLink>
+        {me && <NavLink to="/following">{t('nav.following')}</NavLink>}
         {me && <NavLink to="/dashboard">{t('nav.dashboard')}</NavLink>}
         {me?.role === 'admin' && <NavLink to="/admin">{t('nav.admin')}</NavLink>}
       </nav>
@@ -45,6 +47,7 @@ export default function Header() {
         <button className="ghost small" onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')} title={t('settings.language')}>
           {lang === 'zh' ? 'EN' : '中文'}
         </button>
+        {me && <NotificationBell />}
         {me ? (
           <div className="menu" ref={menuRef}>
             <button className="ghost" onClick={() => setOpen((v) => !v)} aria-label="menu" data-testid="user-menu">
@@ -59,6 +62,7 @@ export default function Header() {
                 </div>
                 <hr />
                 <Link to={'/' + me.username}>{t('nav.myChannel')}</Link>
+                <Link to="/following">{t('nav.following')}</Link>
                 <Link to="/dashboard">{t('nav.dashboard')}</Link>
                 {me.role === 'admin' && <Link to="/admin">{t('nav.admin')}</Link>}
                 <Link to="/settings">{t('nav.settings')}</Link>

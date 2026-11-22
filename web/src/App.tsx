@@ -8,6 +8,8 @@ import Dashboard from './pages/Dashboard'
 import Settings from './pages/Settings'
 import Admin from './pages/Admin'
 import NotFound from './pages/NotFound'
+import Video from './pages/Video'
+import Following from './pages/Following'
 import { useSession } from './session'
 import { useI18n } from './i18n'
 
@@ -34,6 +36,8 @@ export default function App() {
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/admin" element={<Admin />} />
+            <Route path="/following" element={<Following />} />
+            <Route path="/videos/:id" element={<Video />} />
             <Route path="/:slug" element={<ChannelPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>

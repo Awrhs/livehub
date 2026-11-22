@@ -52,11 +52,13 @@ void TranscodeManager::stop() {
     running_.store(false);
     cv_.notify_all();
     if (worker_.joinable()) worker_.join();
-    std::lock_guard<std::mutex> lk(mu_);
+    std::unique_lock<std::mutex> lk(mu_);
     for (auto& [id, t] : active_) {
         if (t->transcoder) t->transcoder->stop();
         if (t->ffmpegPid > 0 && procManager_) procManager_->kill(t->ffmpegPid, 9);
     }
+    // 等待任务线程退出（进程已被杀，runTask 会很快返回）
+    cv_.wait_for(lk, std::chrono::seconds(10), [this] { return runningThreads_.load() == 0; });
     active_.clear();
     queue_.clear();
     finished_.clear();
@@ -243,23 +245,30 @@ void TranscodeManager::schedulerLoop() {
                     .count();
             active_[task->id] = task;
         }
-        bool ok = runTask(task);
-        {
-            std::lock_guard<std::mutex> lk(mu_);
-            active_.erase(task->id);
-            task->endedAtMs = nowMs();
-            if (task->state == TaskState::kCancelled) {
-                // cancel() 已标记（运行中被取消）
-            } else if (!ok) {
-                task->state = TaskState::kFailed;
-            } else {
-                task->state = TaskState::kCompleted;
+        // 每个任务在独立线程中执行（runTask 会阻塞到转码进程退出）。
+        // 原实现在调度线程内同步执行，无论 maxConcurrent 为多少同一时刻只能跑一个任务，
+        // ABR 的第二个档位永远排队。
+        runningThreads_.fetch_add(1);
+        std::thread([this, task] {
+            bool ok = runTask(task);
+            {
+                std::lock_guard<std::mutex> lk(mu_);
+                active_.erase(task->id);
+                task->endedAtMs = nowMs();
+                if (task->state == TaskState::kCancelled) {
+                    // cancel() 已标记（运行中被取消）
+                } else if (!ok) {
+                    task->state = TaskState::kFailed;
+                } else {
+                    task->state = TaskState::kCompleted;
+                }
+                archiveFinishedLocked(task);
+                LOG_INFO("TranscodeManager: task %s %s", task->id.c_str(),
+                         taskStateName(task->state));
+                runningThreads_.fetch_sub(1);
             }
-            archiveFinishedLocked(task);
-            LOG_INFO("TranscodeManager: task %s %s", task->id.c_str(),
-                     taskStateName(task->state));
-        }
-        cv_.notify_one();
+            cv_.notify_all();
+        }).detach();
     }
 }
 

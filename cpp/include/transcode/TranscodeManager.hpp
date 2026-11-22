@@ -140,6 +140,7 @@ private:
     std::deque<std::shared_ptr<TranscodeTask>> finished_;  // 完成顺序
     std::atomic<bool> running_{false};
     std::thread worker_;
+    std::atomic<int> runningThreads_{0};  // 正在执行任务的线程数（stop 时等待归零）
 };
 
 }  // namespace streaming

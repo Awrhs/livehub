@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { del, type ChatMessage } from '../api'
+import { del, post, type ChatMessage } from '../api'
 import { useI18n } from '../i18n'
 import type { MsgKey } from '../i18n/zh'
 
@@ -123,6 +123,14 @@ export default function Chat({ slug, events }: { slug: string; events: ChatEvent
     stickRef.current = true
   }
 
+  const ban = async (userId: number, durationSec: number) => {
+    try {
+      await post('/channels/' + encodeURIComponent(slug) + '/bans', { user_id: userId, duration_sec: durationSec })
+    } catch {
+      // 失败时（如目标为频道主）静默
+    }
+  }
+
   const remove = async (id: number) => {
     try {
       await del('/chat/messages/' + id)
@@ -155,9 +163,21 @@ export default function Chat({ slug, events }: { slug: string; events: ChatEvent
             </span>
             <span>{m.body}</span>
             {me?.can_moderate && (
-              <button className="del small danger" onClick={() => remove(m.id)} title={t('common.delete')}>
-                ×
-              </button>
+              <span className="del" style={{ gap: 4 }}>
+                {m.user.id !== me.id && (
+                  <>
+                    <button className="small" onClick={() => ban(m.user.id, 600)} title={t('mod.timeout10')}>
+                      ⏱
+                    </button>
+                    <button className="small" onClick={() => ban(m.user.id, 0)} title={t('mod.ban')}>
+                      ⛔
+                    </button>
+                  </>
+                )}
+                <button className="small danger" onClick={() => remove(m.id)} title={t('common.delete')}>
+                  ×
+                </button>
+              </span>
             )}
           </div>
         ))}

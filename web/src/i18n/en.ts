@@ -206,6 +206,55 @@ const en: Dict = {
   'time.minutesAgo': '{n} min ago',
   'time.hoursAgo': '{n} h ago',
   'time.daysAgo': '{n} d ago',
+
+  'follow.follow': 'Follow',
+  'follow.unfollow': 'Following',
+  'follow.followers': '{n} followers',
+  'follow.title': 'Following',
+  'follow.empty': "You aren't following any channels yet.",
+  'follow.loginToFollow': 'Log in to follow',
+
+  'notify.title': 'Notifications',
+  'notify.empty': 'No notifications',
+  'notify.markRead': 'Mark all read',
+  'notify.live': '{name} is live: {title}',
+  'notify.stream_approved': 'Your streaming request was approved. You can go live now!',
+  'notify.stream_rejected': 'Your streaming request was declined.',
+
+  'vod.title': 'Videos',
+  'vod.recent': 'Recent videos',
+  'vod.empty': 'No videos yet.',
+  'vod.views': '{n} views',
+  'vod.rename': 'Rename',
+  'vod.deleteConfirm': 'Delete this video? This cannot be undone.',
+  'vod.notFound': 'Video not found',
+  'vod.liveTab': 'Live',
+
+  'report.btn': 'Report',
+  'report.prompt': 'Why are you reporting this channel?',
+  'report.done': 'Report submitted. An administrator will review it.',
+
+  'mod.timeout10': 'Timeout 10 min',
+  'mod.ban': 'Ban from chat',
+  'mod.title': 'Moderators',
+  'mod.hint': 'Moderators can delete messages and timeout users.',
+  'mod.add': 'Add moderator',
+  'mod.usernamePlaceholder': 'Username',
+  'mod.remove': 'Remove',
+  'mod.banned': '{name} was banned from chat',
+
+  'admin.reports': 'Reports',
+  'admin.noReports': 'No open reports.',
+  'admin.reportResolve': 'Resolved',
+  'admin.reportDismiss': 'Dismiss',
+  'admin.reporter': 'Reporter',
+  'admin.reason': 'Reason',
+  'admin.statReports': 'Open reports',
+  'admin.vodRetention': 'Keep videos for N days (0 = forever)',
+
+  'err.already_reported': 'You already reported this channel',
+  'err.timed_out': 'You are timed out',
+  'err.chat_banned': 'You are banned from this chat',
 }
 
 export default en
