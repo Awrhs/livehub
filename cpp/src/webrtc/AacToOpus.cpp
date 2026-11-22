@@ -88,7 +88,9 @@ bool AacToOpus::init(const uint8_t* asc, size_t len) {
     m.enc->sample_rate = kOutRate;
     av_channel_layout_default(&m.enc->ch_layout, kOutChannels);
     m.enc->bit_rate = 64000;
-    m.enc->sample_fmt = ec->sample_fmts ? ec->sample_fmts[0] : AV_SAMPLE_FMT_FLT;
+    // libopus 支持交错 float；FFmpeg 内置 opus 编码器只支持平面 float
+    //（AVCodec::sample_fmts 在新版 FFmpeg 中已弃用，按编码器名选择）
+    m.enc->sample_fmt = std::strcmp(ec->name, "libopus") == 0 ? AV_SAMPLE_FMT_FLT : AV_SAMPLE_FMT_FLTP;
     m.enc->time_base = AVRational{1, kOutRate};
     m.enc->frame_size = kFrameSamples;
     m.enc->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;

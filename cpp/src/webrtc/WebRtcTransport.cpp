@@ -43,10 +43,10 @@ WebRtcTransport::WebRtcTransport(EventLoop* loop, uint16_t udpPort,
       pwd_(std::move(pwd)),
       localFingerprint_(std::move(localFingerprint)),
       stream_(std::move(stream)),
-      ssrc_(randomSsrc()),
-      audioSsrc_(randomSsrc()),
-      audioSeq_(static_cast<uint16_t>(randomSsrc())),
-      audioTsBase_(randomSsrc()) {
+      ssrc_(randomSsrc()) {
+    audioSsrc_ = randomSsrc();
+    audioSeq_ = static_cast<uint16_t>(randomSsrc());
+    audioTsBase_ = randomSsrc();
     ice_ = std::make_unique<IceAgent>(loop, udpPort);
     ice_->setPassword(pwd_);
     ice_->setOnData(

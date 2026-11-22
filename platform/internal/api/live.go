@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -38,6 +39,14 @@ type hookReply struct {
 }
 
 func (s *Server) handleMediaHook(w http.ResponseWriter, r *http.Request) {
+	// 内嵌模式下媒体服务器与平台同机：只接受本机回调（密钥之外的纵深防御）
+	if s.Cfg.Embedded() {
+		host, _, _ := net.SplitHostPort(r.RemoteAddr)
+		if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
+			writeJSON(w, http.StatusForbidden, hookReply{Code: 403, Msg: "forbidden"})
+			return
+		}
+	}
 	secret := r.URL.Query().Get("secret")
 	if s.HookSecret == "" || subtle.ConstantTimeCompare([]byte(secret), []byte(s.HookSecret)) != 1 {
 		writeJSON(w, http.StatusForbidden, hookReply{Code: 403, Msg: "bad secret"})

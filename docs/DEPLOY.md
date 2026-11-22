@@ -9,7 +9,7 @@ docker run -d --name livehub --restart unless-stopped \
   ghcr.io/awrhs/livehub:latest
 ```
 
-打开 `http://<服务器IP>:8000`，**第一个注册的账号自动成为管理员**。
+打开 `http://<服务器IP>:8000`，**第一个注册的账号自动成为管理员**。镜像支持 amd64 与 arm64（如树莓派 4/5、ARM 云服务器）。
 
 或使用 docker compose（`deploy/` 目录）：
 
@@ -77,10 +77,28 @@ RTMP/SRT 推流端口不经过反向代理，直接映射到容器。
 | `LIVEHUB_LOG_LEVEL` | `info` | debug / info / warn / error |
 | `LIVEHUB_MEDIA_RTMP_PORT` | `1935` | 媒体服务器 RTMP 端口 |
 | `LIVEHUB_MEDIA_SRT_PORT` | `10080` | 媒体服务器 SRT 端口，0 为关闭 |
+| `LIVEHUB_WEBRTC_CANDIDATE_IP` | 空 | 设置后开启 WebRTC 播放（服务器对外 IP） |
+| `LIVEHUB_WEBRTC_PORT_MIN` / `_MAX` | `50000` / `50099` | WebRTC UDP 端口范围 |
 
 内部密钥（媒体服务器管理令牌、回调密钥）首次启动时自动生成并保存在数据库中。
 
-## 五、多节点（边缘分发）
+## 五、WebRTC 超低延迟播放（可选）
+
+默认提供标准（HLS，约 6–10 秒延迟）与低延迟（HTTP-FLV，约 1–3 秒）两种播放模式。需要亚秒级延迟时可开启 WebRTC：
+
+```bash
+docker run ... \
+  -e LIVEHUB_WEBRTC_CANDIDATE_IP=<服务器公网 IP> \
+  -p 50000-50099:50000-50099/udp \
+  ghcr.io/awrhs/livehub:latest
+```
+
+- 每个 WebRTC 观众占用一个 UDP 端口，端口范围由 `LIVEHUB_WEBRTC_PORT_MIN` / `LIVEHUB_WEBRTC_PORT_MAX` 配置（默认 50000–50099，即最多 100 名 WebRTC 观众），映射的端口范围必须与之一致。
+- 音频由服务器实时从 AAC 转码为 Opus。
+- 浏览器关闭后 30 秒内自动回收会话与端口。
+- 开启后播放器出现「超低延迟（WebRTC）」选项；其余观众仍可使用 HLS / FLV。
+
+## 六、多节点（边缘分发）
 
 单台服务器的瓶颈通常是出口带宽：一路 3 Mbps 的直播有 1000 人观看需要约 3 Gbps。观众较多时，可以增加**边缘节点**分担播放流量：
 
@@ -100,7 +118,7 @@ RTMP/SRT 推流端口不经过反向代理，直接映射到容器。
 
 LiveHub 每 10 秒检查一次边缘节点健康状态，按频道名把观众分配到健康的边缘节点（同一频道的观众集中在同一边缘，提高回源复用）；边缘全部不可用时自动回落到本机分发。推流、聊天、录像仍由主节点负责。
 
-## 六、备份与恢复
+## 七、备份与恢复
 
 数据目录 `/data` 包含：
 
@@ -119,7 +137,7 @@ docker exec livehub /opt/livehub/livehub backup /data/backup-$(date +%F).db
 
 恢复：停止容器，把备份文件复制为 `/data/livehub.db`（同时删除 `livehub.db-wal`、`livehub.db-shm`），再启动。
 
-## 七、常用运维命令
+## 八、常用运维命令
 
 ```bash
 # 忘记管理员密码：重置密码（同时注销该用户所有登录）
@@ -135,7 +153,7 @@ docker exec livehub /opt/livehub/livehub -version
 curl http://127.0.0.1:8000/healthz
 ```
 
-## 八、升级
+## 九、升级
 
 ```bash
 docker pull ghcr.io/awrhs/livehub:latest
@@ -144,7 +162,7 @@ docker compose up -d     # 或删除旧容器后用相同参数重新 docker run
 
 数据库结构在启动时自动迁移。升级前建议先执行一次备份。
 
-## 九、资源与容量参考
+## 十、资源与容量参考
 
 - 转码（多清晰度）默认关闭：每路直播开启后约占用 1–2 个 CPU 核心。
 - 录像按原始码率保存：3 Mbps 的直播每小时约 1.3 GB，可在站点设置中配置保留天数。
