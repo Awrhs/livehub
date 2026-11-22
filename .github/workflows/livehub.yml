@@ -101,12 +101,12 @@ jobs:
           sudo apt-get install -y cmake g++ ccache ffmpeg jq libssl-dev libsrt-openssl-dev libsrtp2-dev
       - uses: actions/cache@v4
         with:
-          path: ~/.cache/ccache
+          path: .ccache
           key: ccache-release-${{ hashFiles('cpp/src/**', 'cpp/include/**', 'cpp/CMakeLists.txt', 'cpp/src/CMakeLists.txt') }}
           restore-keys: ccache-release-
       - name: 构建媒体服务器（Release）
         env:
-          CCACHE_DIR: ~/.cache/ccache
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
         run: |
           cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTS=OFF -DENABLE_TOOLS=OFF \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache

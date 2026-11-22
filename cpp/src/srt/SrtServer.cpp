@@ -186,6 +186,8 @@ void SrtServer::acceptOne() {
             srt_close(s);
             return;
         }
+        // 踢流：closeSession 加锁且幂等，可在任意线程调用
+        sess->stream->setPublisherCloser([this, s] { closeSession(s); });
         sess->demux = std::make_unique<TsDemuxer>();
         std::weak_ptr<MediaStream> wms = sess->stream;
         sess->demux->setPacketCallback([wms](const MediaPacket& pkt) {

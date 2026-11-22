@@ -180,7 +180,7 @@ api "$B" GET /me >/dev/null
 api "$A" PATCH "/admin/users/$BOB_ID" '{"banned":false}' >/dev/null
 
 echo "== 媒体服务器崩溃自动恢复"
-MPID=$(pgrep -f "$MEDIA_BIN" | head -1)
+MPID=$(pgrep -f "streaming_server .*streaming.conf" | head -1)  # 匹配子进程命令行，避免误杀本脚本
 if [ -n "$MPID" ]; then
   kill -9 "$MPID"
   sleep 1

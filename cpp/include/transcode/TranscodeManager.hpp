@@ -115,7 +115,12 @@ public:
 
     void setMaxConcurrent(int n) { maxConcurrent_ = n > 0 ? n : 1; }
 
+    /// 输出地址追加的查询串（如 "?internal=<token>"）：转码结果推回本机时，
+    /// 业务平台据此识别为内部推流并放行（on_publish webhook 收到的 param）
+    void setOutputQuery(std::string q) { outputQuery_ = std::move(q); }
+
 private:
+    std::string outputQuery_;
     void schedulerLoop();
     /// 执行任务；返回 false 表示失败（原因写入 task->error）
     bool runTask(const std::shared_ptr<TranscodeTask>& task);

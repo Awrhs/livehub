@@ -365,7 +365,7 @@ void TranscodeManager::buildFfmpegArgs(const TranscodeTask& task,
         // 输出：RTMP 推回本地（多码率 ABR）
         argv.push_back("-f");
         argv.push_back("flv");
-        argv.push_back(task.outputPrefix + "_" + p.name);
+        argv.push_back(task.outputPrefix + "_" + p.name + outputQuery_);
     }
 }
 

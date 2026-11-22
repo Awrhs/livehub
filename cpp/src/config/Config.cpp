@@ -224,6 +224,7 @@ void Config::applyKv(const std::string& keyIn, const std::string& value) {
     else if (key == "TRANSCODE_PROFILES") transcodeProfiles_ = value;
     else if (key == "TRANSCODE_CONCURRENCY") transcodeConcurrency_ = asInt();
     else if (key == "TRANSCODE_TASK_TTL_SEC") transcodeTaskTtlSec_ = asInt();
+    else if (key == "INTERNAL_PUBLISH_TOKEN") internalPublishToken_ = value;
     else if (key == "SRT_PORT") srtPort_ = static_cast<uint16_t>(asInt());
     else if (key == "RTSP_PORT") rtspPort_ = static_cast<uint16_t>(asInt());
     else if (key == "REDIS_HOST") redisHost_ = value;

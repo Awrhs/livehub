@@ -101,6 +101,25 @@ public:
     void setVhost(std::string v) { vhost_ = std::move(v); }
     bool hasPublisher() const { return hasPublisher_.load(); }
     void setHasPublisher(bool on) { hasPublisher_.store(on); }
+
+    /// 推流端关闭器：由接入方（RTMP/SRT）在推流开始时设置；
+    /// 管理 API 踢流时调用以真正断开推流连接（仅移除流表项时推流端仍会持续发送）
+    using PublisherCloser = std::function<void()>;
+    void setPublisherCloser(PublisherCloser c) {
+        std::lock_guard<std::mutex> lk(closerMu_);
+        closer_ = std::move(c);
+    }
+    /// 断开推流端；返回是否存在关闭器
+    bool closePublisher() {
+        PublisherCloser c;
+        {
+            std::lock_guard<std::mutex> lk(closerMu_);
+            c = closer_;
+        }
+        if (!c) return false;
+        c();
+        return true;
+    }
     uint32_t subscriberCount() const;
 
     /// 最近活跃时间（ms）
@@ -129,6 +148,8 @@ private:
     SubscriberId nextSubId_ = 1;
 
     std::atomic<bool> hasPublisher_{false};
+    std::mutex closerMu_;
+    PublisherCloser closer_;
     std::atomic<int64_t> lastActiveMs_{0};
 };
 

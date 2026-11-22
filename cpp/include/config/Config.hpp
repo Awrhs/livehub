@@ -76,6 +76,7 @@ public:
     int transcodeConcurrency() const { return transcodeConcurrency_; }
     /// 终态转码任务保留时长（秒），超时由定时清理
     int transcodeTaskTtlSec() const { return transcodeTaskTtlSec_; }
+    std::string internalPublishToken() const { return internalPublishToken_; }
 
     // SRT 接入端口（UDP）
     uint16_t srtPort() const { return srtPort_; }
@@ -140,6 +141,7 @@ private:
     std::string transcodeProfiles_ = "480p,720p";
     int transcodeConcurrency_ = 0;
     int transcodeTaskTtlSec_ = 3600;
+    std::string internalPublishToken_;
 
     uint16_t srtPort_ = 19535;
     uint16_t rtspPort_ = 8554;

@@ -506,6 +506,10 @@ void RtmpConnection::finishPublish(bool ok, const std::string& reason) {
         ms->setVhost(host_);
         ms->touch(Timestamp::now().microSecondsSinceEpoch() / 1000);
         stream_ = ms;
+        std::weak_ptr<TcpConnection> wc = conn_;
+        ms->setPublisherCloser([wc] {
+            if (auto c = wc.lock()) c->forceClose();  // forceClose 线程安全（投递到所属 IO 线程）
+        });
         if (!onPublish_(shared_from_this(), app_, streamKey_, ms)) {
             // 同名流正在推送：拒绝，避免覆盖（流劫持）
             LOG_WARN("RTMP publish rejected, stream busy: %s", streamKey_.c_str());

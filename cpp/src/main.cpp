@@ -667,6 +667,8 @@ int main(int argc, char* argv[]) {
     auto transcodeManager =
         std::make_shared<TranscodeManager>(&baseLoop,
                                             cfg.transcodeConcurrency());
+    if (!cfg.internalPublishToken().empty())
+        transcodeManager->setOutputQuery("?internal=" + cfg.internalPublishToken());
     transcodeManager->start();
     auto abrManager = std::make_shared<AbrManager>(
         transcodeManager.get(),
@@ -706,6 +708,7 @@ int main(int argc, char* argv[]) {
     streamsApi.setStreamKiller([&](const std::string& key) -> bool {
         auto ms = rtmpServer->findStream(key);
         if (!ms) return false;
+        ms->closePublisher();  // 先断开推流连接
         ms->setHasPublisher(false);
         rtmpServer->removeStream(key);
         StatsRegistry::instance().remove(key);
@@ -716,6 +719,21 @@ int main(int argc, char* argv[]) {
     streamsApi.setAbrMaster(
         [&](const std::string& key) { return abrManager->masterPlaylist(key); });
     streamsApi.attach(httpServer);
+
+    // 关闭 ABR：DELETE /api/abr/:stream（推流结束后由业务平台调用，下次开播可重新开启）
+    httpServer.router().add(
+        HttpMethod::DELETE, "/api/abr/:stream",
+        [&](const HttpRequest& req, HttpResponse& resp) {
+            std::string key = req.param("stream");
+            bool was = abrManager->isEnabled(key);
+            abrManager->disable(key);
+            JsonValue o = JsonValue::object();
+            o.set("stream", JsonValue::str(key));
+            o.set("disabled", JsonValue::boolean(was));
+            resp.setStatusCode(HttpStatusCode::k200Ok);
+            resp.setContentType("application/json");
+            resp.setBody(o.dump());
+        });
 
     // ABR 控制 API：POST /api/abr/:stream?profiles=480p,720p
     httpServer.router().post(
