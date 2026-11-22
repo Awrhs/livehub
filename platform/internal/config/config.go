@@ -39,7 +39,7 @@ type Config struct {
 	InternalToken string
 
 	// 边缘播放节点（逗号分隔的对外基础地址，如 https://edge1.example.com）；为空则全部由本机分发
-	EdgeURLs []string
+	EdgeURLs      []string
 	TrustProxy    bool   // 信任 X-Forwarded-For / X-Forwarded-Proto（部署在反向代理后）
 	SecureCookies string // auto | true | false
 	BcryptCost    int

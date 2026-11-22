@@ -10,8 +10,8 @@ import (
 )
 
 type playback struct {
-	HLS string `json:"hls"`
-	FLV string `json:"flv"`
+	HLS  string `json:"hls"`
+	FLV  string `json:"flv"`
 	ABR  string `json:"abr,omitempty"`  // 多清晰度主播放列表（开启转码且就绪时）
 	Edge string `json:"edge,omitempty"` // 分发该频道的边缘节点
 }
