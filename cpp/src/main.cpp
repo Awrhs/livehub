@@ -1006,7 +1006,7 @@ int main(int argc, char* argv[]) {
         [&](const std::string& key, const std::shared_ptr<MediaStream>& ms) {
             rtmpServer->removeStream(key, ms);
         });
-    srtServer->start();
+    if (cfg.srtPort() > 0) srtServer->start();  // SRT_PORT=0 关闭 SRT
 
     // ---- 健康检查（含系统指标；需在 SRT 之后注册以统计活跃连接）----
     httpServer.router().get(

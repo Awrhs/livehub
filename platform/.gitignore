@@ -1,0 +1,5 @@
+/livehub
+/data/
+# 前端构建产物在 CI/Docker 中复制进来；仓库只保留占位页
+/internal/webui/dist/*
+!/internal/webui/dist/index.html
