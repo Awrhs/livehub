@@ -145,7 +145,7 @@ test('README 截图', async ({ browser }) => {
   // ---- 截图 3：主播后台 ----
   const gp = accounts.gopher.page
   await gp.goto('/dashboard')
-  await expect(gp.getByTestId('publish-key')).toBeVisible()
+  await expect(gp.getByTestId('generate-key')).toBeVisible()
   await gp.waitForTimeout(1000)
   await gp.screenshot({ path: `${OUT}/dashboard.png` })
 
