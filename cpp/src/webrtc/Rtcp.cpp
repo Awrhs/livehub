@@ -77,8 +77,8 @@ bool Rtcp::parse(const uint8_t* data, size_t len, Feedback& fb) {
             uint32_t mant = (uint32_t(data[17] & 0x03) << 16) | (uint32_t(data[18]) << 8) | data[19];
             fb.isRemb = true;
             fb.rembBps = exp >= 46 ? UINT64_MAX : (uint64_t(mant) << exp);
-            for (uint8_t i = 0; i < num && 20 + 4 * (i + 1) <= len; ++i)
-                fb.rembSsrcs.push_back(rd32(20 + 4 * i));
+            for (uint8_t i = 0; i < num && 20 + 4 * (size_t(i) + 1) <= len; ++i)
+                fb.rembSsrcs.push_back(rd32(20 + 4 * size_t(i)));
             return true;
         }
     } else if (pt == kRtcpPF) {
