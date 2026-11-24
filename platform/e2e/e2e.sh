@@ -82,7 +82,8 @@ if curl -sf http://127.0.0.1:8025/api/v1/messages >/dev/null 2>&1; then
     LIVEHUB_SMTP_FROM="LiveHub <noreply@livehub.test>"
   MAILPIT=1
 fi
-LIVEHUB_EDGE_URLS=http://127.0.0.1:8082 LIVEHUB_ADDR=:8000 LIVEHUB_DATA_DIR="$WORK/data" LIVEHUB_MEDIA_BIN="$MEDIA_BIN" \
+# 断线重连宽限期设为 8 秒（默认 90 秒），以便在测试中区分「重连续播」与「新的一场」
+LIVEHUB_RECONNECT_GRACE_SEC=8 LIVEHUB_EDGE_URLS=http://127.0.0.1:8082 LIVEHUB_ADDR=:8000 LIVEHUB_DATA_DIR="$WORK/data" LIVEHUB_MEDIA_BIN="$MEDIA_BIN" \
   LIVEHUB_MEDIA_RTMP_PORT=1935 LIVEHUB_MEDIA_HTTP_PORT=8081 LIVEHUB_MEDIA_SRT_PORT=10080 \
   LIVEHUB_BCRYPT_COST=4 LIVEHUB_LOG_LEVEL=debug \
   "$LIVEHUB_BIN" >"$WORK/livehub.log" 2>&1 &
@@ -233,7 +234,7 @@ echo "== 阶段 2：关注通知、封面、多清晰度、录像回放"
 api "$C" POST /channels/bob/follow >/dev/null
 [ "$(status)" = "200" ] && pass "carol 关注 bob" || fail "关注失败 $(status)"
 api "$A" PUT /admin/settings '{"transcode_enabled":"true"}' >/dev/null
-sleep 3  # 等待上一场录像归档完成
+sleep 10 # 超过重连宽限期，确保是新的一场，并等待上一场录像归档完成
 VODS_BEFORE=$(curl -s "$BASE/api/v1/channels/bob/vods" | jq '.vods | length')
 push "$KEY" 40 push_phase2 &
 PIDS+=($!)
@@ -300,17 +301,42 @@ else
   fail "1080p60 HLS 播放失败: $(head -c 300 "$WORK/obs_hls.txt")"
 fi
 # 主播网络中断后立即重连（OBS 自动重连）：旧连接被强杀，新连接马上推流
+sleep 8 # 第一段录像足够长（短于 3 秒的录像会被丢弃）
+STARTED=$(curl -s "$BASE/api/v1/channels/bob" | jq -r .channel.live_started_at)
+VODS_PRE=$(curl -s "$BASE/api/v1/channels/bob/vods" | jq '.vods | length')
 kill -9 "$OBS_PID" 2>/dev/null
 push "$KEY" 20 push_reconnect &
 PIDS+=($!)
 sleep 2
 if wait_for 20 is_live bob; then pass "断线立即重连后恢复直播"; else fail "断线重连后未恢复直播"; fi
+[ "$(curl -s "$BASE/api/v1/channels/bob" | jq -r .channel.live_started_at)" = "$STARTED" ] &&
+  pass "重连视为同一场直播（开播时间连续）" || fail "重连后开播时间被重置"
 if ffprobe -v error -rw_timeout 15000000 -show_entries stream=codec_name -of csv=p=0 "$BASE/live/bob.flv" 2>&1 | grep -q h264; then
   pass "重连后可正常播放"
 else
   fail "重连后无法播放"
 fi
 wait_for 40 is_offline bob
+sleep 10 # 等待归档与合并；同时超过重连宽限期
+NV=$(curl -s "$BASE/api/v1/channels/bob/vods" | jq '.vods | length')
+VD=$(curl -s "$BASE/api/v1/channels/bob/vods" | jq '.vods[0].duration_sec')
+echo "  [INFO] 重连前回放数 $VODS_PRE，之后 $NV，最新回放时长 ${VD}s"
+# 1080p 与重连后的 360p 分辨率不同，无法无损拼接，应保留为两段；同分辨率的合并由下面的 SRT 段验证
+[ "$NV" -ge "$((VODS_PRE + 1))" ] && pass "断线前后的录像均已归档" || fail "录像归档数量异常（$VODS_PRE → $NV）"
+
+echo "== 同场次重连：录像合并为一个回放"
+VODS_PRE=$(curl -s "$BASE/api/v1/channels/bob/vods" | jq '.vods | length')
+push "$KEY" 12 push_merge1
+push "$KEY" 12 push_merge2 # 紧接着重推（宽限期内）
+wait_for 30 is_offline bob
+sleep 10
+NV=$(curl -s "$BASE/api/v1/channels/bob/vods" | jq '.vods | length')
+VD=$(curl -s "$BASE/api/v1/channels/bob/vods" | jq '.vods[0].duration_sec')
+[ "$NV" = "$((VODS_PRE + 1))" ] && pass "两段推流只生成一个回放" || fail "回放数量 $VODS_PRE → $NV"
+awk "BEGIN{exit !($VD > 20)}" && pass "合并后回放时长 ${VD}s（两段之和）" || fail "合并后时长 ${VD}s"
+VURL=$(curl -s "$BASE/api/v1/channels/bob/vods" | jq -r '.vods[0].url')
+dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$BASE$VURL" 2>&1)
+awk "BEGIN{exit !($dur > 20)}" 2>/dev/null && pass "合并后的回放文件可正常播放" || fail "合并后的回放文件异常: $dur"
 
 echo "== SRT 推流"
 SID="#!::r=live/$KEY,m=publish"

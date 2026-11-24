@@ -204,3 +204,34 @@ func TestDiskGuardAndSystemStats(t *testing.T) {
 		t.Fatalf("管理员应收到磁盘告警通知: %v", n)
 	}
 }
+
+func TestReconnectResumesSession(t *testing.T) {
+	e := newEnv(t)
+	e.srv.Cfg.ReconnectGraceSec = 60
+	alice := e.client()
+	alice.register("alice")
+	key := alice.newKey()
+	var ch map[string]any
+	e.hook("on_publish", "alice", "?key="+key)
+	e.client().do("GET", "/api/v1/channels/alice", nil, &ch)
+	started := ch["channel"].(map[string]any)["live_started_at"]
+	e.hook("on_unpublish", "alice", "")
+	e.hook("on_publish", "alice", "?key="+key) // 宽限期内重连
+	e.client().do("GET", "/api/v1/channels/alice", nil, &ch)
+	if ch["channel"].(map[string]any)["live_started_at"] != started {
+		t.Fatalf("重连应续用场次，开播时间不变: %v → %v", started, ch["channel"].(map[string]any)["live_started_at"])
+	}
+	var n int
+	_ = e.srv.Store.DB.QueryRow(`SELECT COUNT(*) FROM stream_sessions`).Scan(&n)
+	if n != 1 {
+		t.Fatalf("重连不应创建新场次，得到 %d 个场次", n)
+	}
+	// 关闭宽限期后重新开播是新的一场
+	e.srv.Cfg.ReconnectGraceSec = 0
+	e.hook("on_unpublish", "alice", "")
+	e.hook("on_publish", "alice", "?key="+key)
+	_ = e.srv.Store.DB.QueryRow(`SELECT COUNT(*) FROM stream_sessions`).Scan(&n)
+	if n != 2 {
+		t.Fatalf("超过宽限期应创建新场次，得到 %d", n)
+	}
+}

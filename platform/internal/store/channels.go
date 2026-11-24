@@ -214,8 +214,10 @@ func (s *Store) ResetStreamKey(ctx context.Context, id int64) (string, error) {
 }
 
 // SetLive 标记开播：创建场次记录。已在直播中则返回 false（幂等）。
-func (s *Store) SetLive(ctx context.Context, channelID int64) (bool, error) {
-	changed := false
+// graceSec > 0 时，若上一场在 graceSec 秒内刚结束（主播断线重连），则续用该场次：
+// 开播时长连续、录像合并为一个回放。第二个返回值表示是否为续播。
+func (s *Store) SetLive(ctx context.Context, channelID int64, graceSec int64) (bool, bool, error) {
+	changed, resumed := false, false
 	now := s.now()
 	err := s.Tx(ctx, func(tx *sql.Tx) error {
 		var live bool
@@ -230,20 +232,37 @@ func (s *Store) SetLive(ctx context.Context, channelID int64) (bool, error) {
 		if live {
 			return nil
 		}
-		res, err := tx.ExecContext(ctx, `INSERT INTO stream_sessions(channel_id, title, category, started_at)
-			VALUES (?, ?, ?, ?)`, channelID, title, category, now)
-		if err != nil {
-			return err
+		var sid, started int64
+		if graceSec > 0 {
+			err := tx.QueryRowContext(ctx, `SELECT id, started_at FROM stream_sessions
+				WHERE channel_id = ? AND ended_at IS NOT NULL AND ended_at >= ? ORDER BY id DESC LIMIT 1`,
+				channelID, now-graceSec).Scan(&sid, &started)
+			if err == nil {
+				if _, err := tx.ExecContext(ctx, `UPDATE stream_sessions SET ended_at = NULL WHERE id = ?`, sid); err != nil {
+					return err
+				}
+				resumed = true
+			} else if !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
 		}
-		sid, _ := res.LastInsertId()
+		if !resumed {
+			res, err := tx.ExecContext(ctx, `INSERT INTO stream_sessions(channel_id, title, category, started_at)
+				VALUES (?, ?, ?, ?)`, channelID, title, category, now)
+			if err != nil {
+				return err
+			}
+			sid, _ = res.LastInsertId()
+			started = now
+		}
 		if _, err := tx.ExecContext(ctx, `UPDATE channels SET is_live = 1, live_started_at = ?, last_live_at = ?,
-			current_session_id = ? WHERE id = ?`, now, now, sid, channelID); err != nil {
+			current_session_id = ? WHERE id = ?`, started, now, sid, channelID); err != nil {
 			return err
 		}
 		changed = true
 		return nil
 	})
-	return changed, err
+	return changed, resumed, err
 }
 
 // SetOffline 标记下播并结束场次。未在直播返回 (0, false)；否则返回结束的场次 ID。

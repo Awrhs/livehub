@@ -56,6 +56,7 @@ type Config struct {
 	SMTPFrom       string
 	SMTPTLS        string
 	RegisterPerMin int // 每 IP 每分钟注册次数上限
+	ReconnectGraceSec int // 主播断线后在此时间内重连视为同一场直播（0 = 关闭）
 	MinFreeMB      int // 数据目录剩余空间低于此值（MB）时停止录像并告警
 	LogLevel       string
 }
@@ -145,6 +146,9 @@ func Load() (*Config, error) {
 	}
 	if c.SMTPHost != "" && c.SMTPFrom == "" {
 		return nil, fmt.Errorf("配置了 LIVEHUB_SMTP_HOST 时必须配置 LIVEHUB_SMTP_FROM（发件人地址）")
+	}
+	if c.ReconnectGraceSec, err = envInt("LIVEHUB_RECONNECT_GRACE_SEC", 90); err != nil {
+		return nil, err
 	}
 	if c.MinFreeMB, err = envInt("LIVEHUB_MIN_FREE_MB", 2048); err != nil {
 		return nil, err

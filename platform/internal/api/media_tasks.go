@@ -80,9 +80,11 @@ func (s *Server) waitStream(ctx context.Context, key string, timeout time.Durati
 
 // afterLive 开播后的异步任务：开播通知、录像、多清晰度转码、首张封面。
 // 与 afterOffline 共用频道录像锁，保证上一场录像归档完成后才开始新录像。
-func (s *Server) afterLive(ch *store.Channel) {
+func (s *Server) afterLive(ch *store.Channel, resumed bool) {
 	ctx := context.Background()
-	if ids, err := s.Store.NotifyFollowers(ctx, ch.ID, ch.Title); err == nil && len(ids) > 0 {
+	if resumed {
+		s.Log.Info("断线重连续播，不重复发送开播通知", "channel", ch.Slug)
+	} else if ids, err := s.Store.NotifyFollowers(ctx, ch.ID, ch.Title); err == nil && len(ids) > 0 {
 		for _, id := range ids {
 			s.events.publish(id, map[string]string{"type": "notification", "kind": "live", "channel": ch.Slug})
 		}
@@ -183,17 +185,84 @@ func (s *Server) archiveRecording(ctx context.Context, ch *store.Channel, sessio
 			title, category = t, c
 		}
 	}
-	id, err := s.Store.CreateVOD(ctx, ch.ID, sessionID, title, category, name, dur, info.Size())
-	if err != nil {
-		_ = os.Remove(dst)
-		return err
+	// 同一场次（断线重连续播）已有回放：合并为一个文件
+	if sessionID != 0 {
+		if prev, err := s.Store.VODBySession(ctx, sessionID); err == nil {
+			err := s.mergeVOD(ctx, prev, dst)
+			if err == nil {
+				return nil
+			}
+			s.Log.Warn("合并回放失败，保留为单独回放", "channel", ch.Slug, "err", err)
+		}
 	}
+	// 先截封面再登记：回放出现在列表中时封面已就绪
 	at := 5.0
 	if dur > 0 && dur < 10 {
 		at = dur / 2
 	}
-	s.captureThumb(ctx, dst, filepath.Join(s.Cfg.ThumbDir(), "vod_"+strconv.FormatInt(id, 10)+".jpg"), at)
+	tmpThumb := filepath.Join(s.Cfg.ThumbDir(), "pending_"+name+".jpg")
+	hasThumb := s.captureThumb(ctx, dst, tmpThumb, at)
+	id, err := s.Store.CreateVOD(ctx, ch.ID, sessionID, title, category, name, dur, info.Size())
+	if err != nil {
+		_ = os.Remove(dst)
+		_ = os.Remove(tmpThumb)
+		return err
+	}
+	if hasThumb {
+		_ = os.Rename(tmpThumb, filepath.Join(s.Cfg.ThumbDir(), "vod_"+strconv.FormatInt(id, 10)+".jpg"))
+	}
 	s.Log.Info("录像已归档", "channel", ch.Slug, "vod", id, "duration", dur)
+	return nil
+}
+
+// probeVideo 视频流的编码与分辨率（用于判断两段录像能否无损拼接）。
+func (s *Server) probeVideo(ctx context.Context, path string) string {
+	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(cctx, s.Cfg.FFprobe, "-v", "error", "-select_streams", "v:0",
+		"-show_entries", "stream=codec_name,width,height", "-of", "csv=p=0", path).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// mergeVOD 把新一段录像无损拼接到同场次已有回放之后（ffmpeg concat，-c copy）。
+func (s *Server) mergeVOD(ctx context.Context, prev *store.VOD, next string) error {
+	prevPath := filepath.Join(s.Cfg.VODDir(), filepath.Base(prev.File))
+	a, b := s.probeVideo(ctx, prevPath), s.probeVideo(ctx, next)
+	if a == "" || a != b {
+		return fmt.Errorf("两段录像参数不同（%q / %q），无法无损拼接", a, b)
+	}
+	list := next + ".txt"
+	content := "file '" + prevPath + "'\nfile '" + next + "'\n"
+	if err := os.WriteFile(list, []byte(content), 0o644); err != nil {
+		return err
+	}
+	defer os.Remove(list)
+	out := prevPath + ".merge.mp4"
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(cctx, s.Cfg.FFmpeg, "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0",
+		"-i", list, "-c", "copy", "-movflags", "+faststart", out)
+	if msg, err := cmd.CombinedOutput(); err != nil {
+		_ = os.Remove(out)
+		return fmt.Errorf("ffmpeg concat: %v %s", err, strings.TrimSpace(string(msg)))
+	}
+	dur := s.probeDuration(ctx, out)
+	info, err := os.Stat(out)
+	if err != nil || dur <= prev.DurationSec {
+		_ = os.Remove(out)
+		return fmt.Errorf("拼接结果异常（时长 %.1fs）", dur)
+	}
+	if err := os.Rename(out, prevPath); err != nil {
+		return err
+	}
+	_ = os.Remove(next)
+	if err := s.Store.UpdateVODMedia(ctx, prev.ID, dur, info.Size()); err != nil {
+		return err
+	}
+	s.Log.Info("断线重连续播：回放已合并", "vod", prev.ID, "duration", dur)
 	return nil
 }
 

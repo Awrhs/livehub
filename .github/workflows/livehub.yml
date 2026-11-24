@@ -141,20 +141,58 @@ jobs:
         run: |
           cd web && npm install --no-audit --no-fund && cd ..
           platform/e2e/browser.sh "$PWD/platform/livehub" "$PWD/cpp/build/bin/streaming_server"
-      - name: 浏览器兼容性（Chrome / Firefox / WebKit）
-        if: success() || steps.e2e.conclusion == 'failure'
-        env:
-          E2E_ARTIFACT_DIR: ${{ github.workspace }}/e2e-artifacts/compat
-        run: |
-          cd web && npx playwright install --with-deps firefox webkit && cd ..
-          sudo apt-get install -y gstreamer1.0-libav gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly || true
-          platform/e2e/browser.sh "$PWD/platform/livehub" "$PWD/cpp/build/bin/streaming_server" --config playwright.compat.config.ts
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: livehub-e2e
           path: e2e-artifacts
           retention-days: 7
+
+  browser-compat:
+    name: 浏览器兼容性（Chrome / Firefox / WebKit）
+    needs: [go, web]
+    runs-on: ubuntu-latest
+    # 官方 Playwright 镜像（Ubuntu 24.04）：自带 Firefox/WebKit 及其依赖；
+    # GitHub 托管 runner 已升级到 Ubuntu 26.04，Playwright 尚不支持在其上安装浏览器依赖
+    container: mcr.microsoft.com/playwright:v1.49.0-noble
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: 安装依赖
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y cmake g++ ffmpeg jq curl procps pkg-config \
+            libssl-dev libsrt-openssl-dev libsrtp2-dev libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev \
+            gstreamer1.0-libav gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly
+      - name: 构建媒体服务器
+        run: |
+          cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTS=OFF -DENABLE_TOOLS=OFF
+          cmake --build cpp/build --target streaming_server -j"$(nproc)"
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: platform/internal/webui/dist
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: platform/go.mod
+      - name: 构建 LiveHub
+        working-directory: platform
+        run: |
+          go mod tidy
+          go build -o livehub ./cmd/livehub
+      - name: 兼容性测试
+        env:
+          HOME: /root
+          E2E_ARTIFACT_DIR: ${{ github.workspace }}/compat-artifacts
+        run: |
+          cd web && npm install --no-audit --no-fund && npx playwright install chrome && cd ..
+          platform/e2e/browser.sh "$PWD/platform/livehub" "$PWD/cpp/build/bin/streaming_server" --config playwright.compat.config.ts
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: compat-artifacts
+          path: compat-artifacts
 
   docker:
     name: Docker 一体化镜像冒烟测试

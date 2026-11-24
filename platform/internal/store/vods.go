@@ -98,6 +98,17 @@ func (s *Store) VODsBefore(ctx context.Context, cutoff int64) ([]*VOD, error) {
 	return out, rows.Err()
 }
 
+// VODBySession 某场次已归档的回放（断线重连续播时用于合并）。
+func (s *Store) VODBySession(ctx context.Context, sessionID int64) (*VOD, error) {
+	return scanVOD(s.DB.QueryRowContext(ctx, `SELECT `+vodCols+vodFrom+`WHERE v.session_id = ? ORDER BY v.id DESC LIMIT 1`, sessionID))
+}
+
+// UpdateVODMedia 合并后更新回放时长与大小。
+func (s *Store) UpdateVODMedia(ctx context.Context, id int64, duration float64, size int64) error {
+	_, err := s.DB.ExecContext(ctx, `UPDATE vods SET duration_sec = ?, size_bytes = ? WHERE id = ?`, duration, size, id)
+	return err
+}
+
 func (s *Store) DeleteVOD(ctx context.Context, id int64) error {
 	_, err := s.DB.ExecContext(ctx, `DELETE FROM vods WHERE id = ?`, id)
 	return err

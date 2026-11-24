@@ -146,7 +146,7 @@ func (s *Server) goLive(ctx context.Context, ch *store.Channel) {
 	mu := s.channelMutex(ch.ID)
 	mu.Lock()
 	defer mu.Unlock()
-	changed, err := s.Store.SetLive(ctx, ch.ID)
+	changed, resumed, err := s.Store.SetLive(ctx, ch.ID, int64(s.Cfg.ReconnectGraceSec))
 	if err != nil {
 		s.Log.Error("标记开播失败", "channel", ch.Slug, "err", err)
 		return
@@ -155,9 +155,9 @@ func (s *Server) goLive(ctx context.Context, ch *store.Channel) {
 	delete(s.missing, ch.ID)
 	s.liveMu.Unlock()
 	if changed {
-		s.Log.Info("开播", "channel", ch.Slug)
+		s.Log.Info("开播", "channel", ch.Slug, "resumed", resumed)
 		s.Hub.Broadcast(ch.ID, map[string]any{"type": "live", "is_live": true})
-		go s.afterLive(ch)
+		go s.afterLive(ch, resumed)
 	}
 }
 

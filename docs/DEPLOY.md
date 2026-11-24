@@ -75,6 +75,8 @@ RTMP/SRT 推流端口不经过反向代理，直接映射到容器。
 | `LIVEHUB_TRUST_PROXY` | `false` | 部署在反向代理后时开启，按 X-Forwarded-For 识别客户端 IP |
 | `LIVEHUB_EDGE_URLS` | 空 | 边缘播放节点（逗号分隔），见「多节点」 |
 | `LIVEHUB_LOG_LEVEL` | `info` | debug / info / warn / error |
+| `LIVEHUB_MIN_FREE_MB` | `2048` | 数据目录剩余空间低于此值时停止录像并通知管理员 |
+| `LIVEHUB_SMTP_*` | 空 | 邮件服务，见「邮件」一节 |
 | `LIVEHUB_MEDIA_RTMP_PORT` | `1935` | 媒体服务器 RTMP 端口 |
 | `LIVEHUB_MEDIA_SRT_PORT` | `10080` | 媒体服务器 SRT 端口，0 为关闭 |
 | `LIVEHUB_WEBRTC_CANDIDATE_IP` | 空 | 设置后开启 WebRTC 播放（服务器对外 IP） |
@@ -82,7 +84,26 @@ RTMP/SRT 推流端口不经过反向代理，直接映射到容器。
 
 内部密钥（媒体服务器管理令牌、回调密钥）首次启动时自动生成并保存在数据库中。
 
-## 五、WebRTC 超低延迟播放（可选）
+## 五、邮件（找回密码，推荐配置）
+
+配置 SMTP 后，用户可以绑定并验证邮箱，忘记密码时通过邮件自助重置；未配置时只能由管理员在「管理后台 → 用户 → 重置密码」生成临时密码。
+
+```
+LIVEHUB_SMTP_HOST=smtp.example.com
+LIVEHUB_SMTP_PORT=587                  # 默认：starttls 为 587，tls 为 465
+LIVEHUB_SMTP_TLS=starttls              # starttls | tls | none（none 仅限内网中继）
+LIVEHUB_SMTP_USER=noreply@example.com
+LIVEHUB_SMTP_PASSWORD=应用专用密码
+LIVEHUB_SMTP_FROM=LiveHub <noreply@example.com>
+LIVEHUB_PUBLIC_URL=https://live.example.com   # 邮件中的链接地址，务必配置
+```
+
+常见邮箱服务：QQ 邮箱 / 163 邮箱需在网页设置中开启 SMTP 并使用「授权码」作为密码；Gmail 需使用「应用专用密码」。配置后可在「管理后台 → 概览 → 发送测试邮件」验证（发到管理员自己绑定的邮箱）。
+
+- 验证链接 48 小时内有效，重置链接 1 小时内有效，均只能使用一次。
+- 找回密码只会发给**已验证**的邮箱；无论账号是否存在页面都显示相同提示，避免泄露注册信息。
+
+## 六、WebRTC 超低延迟播放（可选）
 
 默认提供标准（HLS，约 6–10 秒延迟）与低延迟（HTTP-FLV，约 1–3 秒）两种播放模式。需要亚秒级延迟时可开启 WebRTC：
 
@@ -100,7 +121,7 @@ docker run ... \
 - 浏览器关闭后 30 秒内自动回收会话与端口。
 - 开启后播放器出现「超低延迟（WebRTC）」选项；其余观众仍可使用 HLS / FLV。
 
-## 六、多节点（边缘分发）
+## 七、多节点（边缘分发）
 
 单台服务器的瓶颈通常是出口带宽：一路 3 Mbps 的直播有 1000 人观看需要约 3 Gbps。观众较多时，可以增加**边缘节点**分担播放流量：
 
@@ -120,7 +141,7 @@ docker run ... \
 
 LiveHub 每 10 秒检查一次边缘节点健康状态，按频道名把观众分配到健康的边缘节点（同一频道的观众集中在同一边缘，提高回源复用）；边缘全部不可用时自动回落到本机分发。推流、聊天、录像仍由主节点负责。
 
-## 七、备份与恢复
+## 八、备份与恢复
 
 数据目录 `/data` 包含：
 
@@ -139,10 +160,10 @@ docker exec livehub /opt/livehub/livehub backup /data/backup-$(date +%F).db
 
 恢复：停止容器，把备份文件复制为 `/data/livehub.db`（同时删除 `livehub.db-wal`、`livehub.db-shm`），再启动。
 
-## 八、常用运维命令
+## 九、常用运维命令
 
 ```bash
-# 忘记管理员密码：重置密码（同时注销该用户所有登录）
+# 管理员也忘记密码且未配置邮件时：命令行重置（同时注销该用户所有登录）
 docker exec livehub /opt/livehub/livehub reset-password admin 新密码至少8位
 
 # 把用户设为管理员（例如原管理员账号被误封）
@@ -155,7 +176,7 @@ docker exec livehub /opt/livehub/livehub -version
 curl http://127.0.0.1:8000/healthz
 ```
 
-## 九、升级
+## 十、升级
 
 ```bash
 docker pull ghcr.io/awrhs/livehub:latest
@@ -164,8 +185,9 @@ docker compose up -d     # 或删除旧容器后用相同参数重新 docker run
 
 数据库结构在启动时自动迁移。升级前建议先执行一次备份。
 
-## 十、资源与容量参考
+## 十一、资源与容量参考
 
 - 转码（多清晰度）默认关闭：每路直播开启后约占用 1–2 个 CPU 核心。
-- 录像按原始码率保存：3 Mbps 的直播每小时约 1.3 GB，可在站点设置中配置保留天数。
+- 录像按原始码率保存：3 Mbps 的直播每小时约 1.3 GB，可在站点设置中配置保留天数；剩余空间低于 `LIVEHUB_MIN_FREE_MB` 时自动停止录像。
+- 管理后台「概览」实时显示 CPU、内存、磁盘与出口带宽。
 - 观众数统计基于直播间页面的在线连接数。

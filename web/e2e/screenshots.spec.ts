@@ -1,6 +1,8 @@
 import { test, expect, type APIRequestContext, type Browser, type Page } from '@playwright/test'
-import { spawn, type ChildProcess } from 'node:child_process'
-import { mkdirSync } from 'node:fs'
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
+import { mkdirSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 // 生成 README 截图：准备演示数据（多个直播中的频道、聊天、回放、待审批申请）后截图。
 // 仅在 SCREENSHOTS=1 时运行（由 .github/workflows/screenshots.yml 触发），常规 E2E 跳过。
@@ -43,6 +45,14 @@ async function waitFor(fn: () => Promise<boolean>, ms = 60_000) {
   throw new Error('等待超时')
 }
 
+// 用 ffmpeg 生成一张头像并上传
+async function uploadAvatar(api: APIRequestContext, source: string, name: string) {
+  const file = join(tmpdir(), `avatar-${name}.png`)
+  execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', source, '-frames:v', '1', file])
+  const r = await api.post('/api/v1/me/avatar', { headers: { ...H, 'Content-Type': 'image/png' }, data: readFileSync(file) })
+  expect(r.ok()).toBeTruthy()
+}
+
 test.afterAll(() => {
   for (const p of pushes) p.kill('SIGINT')
 })
@@ -53,6 +63,7 @@ test('README 截图', async ({ browser }) => {
 
   // ---- 演示数据 ----
   const admin = await user(browser, 'zhanzhang', '站长')
+  await uploadAvatar(admin.api, 'cellauto=s=256x256:rule=110', 'admin')
   await admin.api.put('/api/v1/admin/settings', {
     headers: H,
     data: { site_name: 'LiveHub 社区', announcement: '🎉 欢迎来到 LiveHub！本周六晚 8 点举办社区直播活动，欢迎各位主播报名。' },
@@ -68,6 +79,7 @@ test('README 截图', async ({ browser }) => {
   for (const s of streamers) {
     const a = await user(browser, s.u, s.n)
     accounts[s.u] = a
+    await uploadAvatar(a.api, s.src.replace(/size=1280x720|s=1280x720/, 's=256x256'), s.u)
     await a.api.post('/api/v1/me/stream-request', { headers: H, data: { note: '想和大家分享' + s.cat } })
     await admin.api.patch(`/api/v1/admin/users/${a.me.id}`, { headers: H, data: { stream_status: 'approved' } })
     await a.api.patch('/api/v1/me/channel', {
@@ -136,6 +148,13 @@ test('README 截图', async ({ browser }) => {
   await expect(gp.getByTestId('publish-key')).toBeVisible()
   await gp.waitForTimeout(1000)
   await gp.screenshot({ path: `${OUT}/dashboard.png` })
+
+  // ---- 截图 4a：管理后台概览（系统资源）----
+  await admin.page.goto('/admin')
+  await admin.page.waitForTimeout(6000) // 等待两次资源采样，带宽数值才准确
+  await admin.page.reload()
+  await admin.page.waitForTimeout(1500)
+  await admin.page.screenshot({ path: `${OUT}/admin-overview.png` })
 
   // ---- 截图 4：管理后台（开播审批）----
   await admin.page.goto('/admin')

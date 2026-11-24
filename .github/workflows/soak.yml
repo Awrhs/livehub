@@ -20,7 +20,7 @@ on:
 
 concurrency:
   group: soak-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false  # 长稳测试不被新提交打断：新运行排队等待
 
 jobs:
   soak:
