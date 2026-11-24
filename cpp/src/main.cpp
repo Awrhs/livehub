@@ -621,7 +621,8 @@ int main(int argc, char* argv[]) {
     auto webrtc =
         std::make_shared<WebRtcManager>(
             &baseLoop, static_cast<uint16_t>(cfg.webrtcPortMin()),
-            static_cast<uint16_t>(std::max(1, cfg.webrtcPortMax() - cfg.webrtcPortMin() + 1)));
+            static_cast<uint16_t>(std::max(1, cfg.webrtcPortMax() - cfg.webrtcPortMin() + 1)),
+            static_cast<uint16_t>(cfg.webrtcUdpPort()));
     // 每 5 秒回收空闲的 WHEP 会话（30 秒无任何对端数据）
     baseLoop.runEvery(5.0, [webrtc] { webrtc->sweepIdle(30000); });
 

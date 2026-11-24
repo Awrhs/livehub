@@ -14,6 +14,8 @@
 
 namespace streaming {
 
+class IceMux;
+
 /**
  * WebRtcTransport: 单个 WHEP 观众的 WebRTC 下行链路。
  *
@@ -29,7 +31,7 @@ public:
     WebRtcTransport(EventLoop* loop, uint16_t udpPort,
                     std::string ufrag, std::string pwd,
                     std::string localFingerprint,
-                    std::shared_ptr<MediaStream> stream);
+                    std::shared_ptr<MediaStream> stream, IceMux* mux = nullptr);
     ~WebRtcTransport();
 
     void start();
@@ -66,6 +68,15 @@ private:
     bool sentKeyframe_ = false;
     void onAudioPacket(const MediaPacket& pkt);
     void sendOpus(const uint8_t* data, size_t len, uint32_t ts48k);
+    // RTCP Sender Report：音视频 RTP 时间戳都由同一 RTMP 时钟换算而来，
+    // 周期性发送 SR（NTP 时间 ↔ 各自 RTP 时间戳）让浏览器做唇音同步
+    void maybeSendSenderReports(uint32_t mediaTsMs);
+    void sendRtcp(std::vector<uint8_t> pkt);
+    int64_t lastSrMs_ = 0;
+    uint32_t lastMediaTsMs_ = 0;
+    int64_t lastMediaSteadyMs_ = 0;
+    uint32_t videoPackets_ = 0, videoOctets_ = 0;
+    uint32_t audioPackets_ = 0, audioOctets_ = 0;
     std::unique_ptr<AacToOpus> opus_;
     int audioPt_ = -1;
     uint32_t audioSsrc_ = 0;

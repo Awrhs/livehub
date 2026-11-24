@@ -21,12 +21,17 @@ std::string randomToken(size_t len) {
 }  // namespace
 
 WebRtcManager::WebRtcManager(EventLoop* loop, uint16_t portBase,
-                             uint16_t portRange)
+                             uint16_t portRange, uint16_t muxPort)
     : loop_(loop),
       portBase_(portBase),
       portRange_(portRange),
       nextPort_(portBase),
-      localFingerprint_(DtlsTransport::localFingerprintSha256()) {}
+      localFingerprint_(DtlsTransport::localFingerprintSha256()) {
+    if (muxPort != 0) {
+        mux_ = std::make_unique<IceMux>(loop, muxPort);
+        mux_->start();
+    }
+}
 
 WebRtcManager::~WebRtcManager() {
     std::lock_guard<std::mutex> lk(mu_);
@@ -37,6 +42,7 @@ WebRtcManager::~WebRtcManager() {
 }
 
 uint16_t WebRtcManager::allocPort() {
+    if (mux_) return mux_->port();
     // 轮询分配端口；真正可用性由 IceAgent bind 时决定。
     uint16_t p = nextPort_.fetch_add(1);
     if (p >= portBase_ + portRange_) {
@@ -50,12 +56,12 @@ std::shared_ptr<WebRtcTransport> WebRtcManager::createSubscriber(
     const std::string& streamKey, std::shared_ptr<MediaStream> stream) {
     if (!stream) return nullptr;
     std::string sessionId = streamKey + "-" + randomToken(8);
-    std::string ufrag = randomToken(4);
+    std::string ufrag = randomToken(8);  // 单端口复用按 ufrag 分发，需足够长避免冲突
     std::string pwd = randomToken(22);
 
     uint16_t port = allocPort();
     auto transport = std::make_shared<WebRtcTransport>(
-        loop_, port, ufrag, pwd, localFingerprint_, stream);
+        loop_, port, ufrag, pwd, localFingerprint_, stream, mux_.get());
     transport->start();
 
     {
@@ -71,11 +77,11 @@ std::shared_ptr<WebRtcIngest> WebRtcManager::createIngest(
     const std::string& streamKey, std::shared_ptr<MediaStream> stream) {
     if (!stream) return nullptr;
     std::string sessionId = "whip-" + streamKey + "-" + randomToken(8);
-    std::string ufrag = randomToken(4);
+    std::string ufrag = randomToken(8);  // 单端口复用按 ufrag 分发，需足够长避免冲突
     std::string pwd = randomToken(22);
     uint16_t port = allocPort();
     auto ingest = std::make_shared<WebRtcIngest>(
-        loop_, port, ufrag, pwd, localFingerprint_, stream);
+        loop_, port, ufrag, pwd, localFingerprint_, stream, mux_.get());
     ingest->start();
     {
         std::lock_guard<std::mutex> lk(mu_);

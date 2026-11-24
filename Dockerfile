@@ -61,7 +61,7 @@ ENV LIVEHUB_ADDR=:8000 \
 
 USER livehub
 VOLUME /data
-# 8000 网页与播放，1935 RTMP 推流，10080/udp SRT 推流
-EXPOSE 8000 1935 10080/udp
+# 8000 网页与播放，1935 RTMP 推流，10080/udp SRT 推流，50000/udp WebRTC（所有观众共用，开启 WebRTC 时映射）
+EXPOSE 8000 1935 10080/udp 50000/udp
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD curl -fsS http://127.0.0.1:8000/healthz || exit 1
 ENTRYPOINT ["/usr/bin/tini", "--", "/opt/livehub/livehub"]

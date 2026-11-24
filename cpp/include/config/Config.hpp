@@ -79,6 +79,7 @@ public:
     std::string internalPublishToken() const { return internalPublishToken_; }
     int webrtcPortMin() const { return webrtcPortMin_; }
     bool enableTimeshift() const { return enableTimeshift_; }
+    int webrtcUdpPort() const { return webrtcUdpPort_; }
     int webrtcPortMax() const { return webrtcPortMax_; }
 
     // SRT 接入端口（UDP）
@@ -147,6 +148,7 @@ private:
     std::string internalPublishToken_;
     int webrtcPortMin_ = 50000;
     bool enableTimeshift_ = true;
+    int webrtcUdpPort_ = 0;  // 非 0：WebRTC 单端口复用
     int webrtcPortMax_ = 50999;
 
     uint16_t srtPort_ = 19535;

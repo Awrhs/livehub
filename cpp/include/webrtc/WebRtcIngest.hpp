@@ -16,6 +16,8 @@
 
 namespace streaming {
 
+class IceMux;
+
 /**
  * WebRtcIngest: 一路 WHIP 推流入站链路。
  *
@@ -27,7 +29,7 @@ class WebRtcIngest : public std::enable_shared_from_this<WebRtcIngest> {
 public:
     WebRtcIngest(EventLoop* loop, uint16_t udpPort, std::string ufrag,
                  std::string pwd, std::string localFingerprint,
-                 std::shared_ptr<MediaStream> stream);
+                 std::shared_ptr<MediaStream> stream, IceMux* mux = nullptr);
     ~WebRtcIngest();
 
     void start();

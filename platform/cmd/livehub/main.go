@@ -210,7 +210,7 @@ func run() error {
 				SRTPort: cfg.MediaSRTPort, AdminToken: adminToken, JWTSecret: jwtSecret,
 				HookBaseURL: cfg.HookURL, HookSecret: hookSecret, DVRDir: cfg.MediaDVRDir,
 				CandidateIP: cfg.WebRTCCandidateIP, InternalToken: internalToken,
-				WebRTCPortMin: cfg.WebRTCPortMin, WebRTCPortMax: cfg.WebRTCPortMax,
+				WebRTCPortMin: cfg.WebRTCPortMin, WebRTCPortMax: cfg.WebRTCPortMax, WebRTCUDPPort: cfg.WebRTCUDPPort,
 			},
 			Log:       log.With("component", "supervisor"),
 			OnRestart: srv.OnMediaRestart,

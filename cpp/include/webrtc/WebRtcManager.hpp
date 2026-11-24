@@ -2,6 +2,7 @@
 
 #include "net/EventLoop.hpp"
 #include "webrtc/DtlsTransport.hpp"
+#include "webrtc/IceMux.hpp"
 #include "webrtc/WebRtcIngest.hpp"
 #include "webrtc/WebRtcTransport.hpp"
 
@@ -24,8 +25,9 @@ class MediaStream;
  */
 class WebRtcManager {
 public:
+    /// muxPort 非 0 时所有会话共用该 UDP 端口（单端口复用），否则每个会话占用 [portBase, portBase+portRange) 中的一个端口
     WebRtcManager(EventLoop* loop, uint16_t portBase = 50000,
-                  uint16_t portRange = 1000);
+                  uint16_t portRange = 1000, uint16_t muxPort = 0);
     ~WebRtcManager();
 
     /// 创建一路下行会话。返回 nullptr 表示端口耗尽。
@@ -50,6 +52,7 @@ private:
     uint16_t allocPort();
 
     EventLoop* loop_;
+    std::unique_ptr<IceMux> mux_;
     uint16_t portBase_;
     uint16_t portRange_;
     std::atomic<uint16_t> nextPort_;

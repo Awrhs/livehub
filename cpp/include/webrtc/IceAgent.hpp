@@ -13,6 +13,8 @@
 
 namespace streaming {
 
+class IceMux;
+
 /**
  * IceAgent: ICE-lite 代理（RFC 8445）。
  *
@@ -31,6 +33,8 @@ public:
                            const sockaddr_in& peer)>;
 
     IceAgent(EventLoop* loop, uint16_t port);
+    /// 单端口复用模式：不占用独立端口，由 IceMux 按本端 ufrag 分发报文
+    IceAgent(EventLoop* loop, IceMux* mux, std::string localUfrag);
     ~IceAgent();
 
     void setOnCandidate(CandidateCallback cb) { onCandidate_ = std::move(cb); }
@@ -51,19 +55,26 @@ public:
 
     /// 服务器反射 / host candidate（candidate: 行）
     std::string hostCandidate(const std::string& publicIp) const;
-    uint16_t port() const { return udp_ ? udp_->port() : 0; }
+    uint16_t port() const;
 
     /// 向已选定对端发送（RTP/RTCP/DTLS）
     void send(const uint8_t* data, size_t len);
 
     EventLoop* loop() const { return loop_; }
 
+    /// 供 IceMux 调用：STUN 连通性检查（合法返回 true）与其他报文
+    bool acceptStun(const uint8_t* data, size_t len, const sockaddr_in& peer);
+    void onMuxDatagram(const uint8_t* data, size_t len, const sockaddr_in& peer, Timestamp t);
+
 private:
+    void sendRaw(const uint8_t* data, size_t len, const sockaddr_in& peer);
     void onDatagram(const uint8_t* data, size_t len, const sockaddr_in& peer,
                     Timestamp);
 
     EventLoop* loop_;
     std::unique_ptr<UdpServer> udp_;
+    IceMux* mux_ = nullptr;
+    std::string ufrag_;
     std::string password_;
     bool selected_ = false;
     std::atomic<int64_t> lastRecvMs_{0};

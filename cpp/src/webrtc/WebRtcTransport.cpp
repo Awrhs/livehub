@@ -4,6 +4,7 @@
 
 #include <arpa/inet.h>
 
+#include <chrono>
 #include <cstring>
 #include <random>
 
@@ -37,7 +38,7 @@ std::vector<std::vector<uint8_t>> extractAvccNalus(const uint8_t* d,
 WebRtcTransport::WebRtcTransport(EventLoop* loop, uint16_t udpPort,
                                  std::string ufrag, std::string pwd,
                                  std::string localFingerprint,
-                                 std::shared_ptr<MediaStream> stream)
+                                 std::shared_ptr<MediaStream> stream, IceMux* mux)
     : loop_(loop),
       ufrag_(std::move(ufrag)),
       pwd_(std::move(pwd)),
@@ -47,7 +48,7 @@ WebRtcTransport::WebRtcTransport(EventLoop* loop, uint16_t udpPort,
     audioSsrc_ = randomSsrc();
     audioSeq_ = static_cast<uint16_t>(randomSsrc());
     audioTsBase_ = randomSsrc();
-    ice_ = std::make_unique<IceAgent>(loop, udpPort);
+    ice_ = mux ? std::make_unique<IceAgent>(loop, mux, ufrag_) : std::make_unique<IceAgent>(loop, udpPort);
     ice_->setPassword(pwd_);
     ice_->setOnData(
         [this](const uint8_t* d, size_t n, const sockaddr_in& p) {
@@ -72,6 +73,8 @@ WebRtcTransport::WebRtcTransport(EventLoop* loop, uint16_t udpPort,
     packetizer_ = std::make_unique<H264RtpPacketizer>(ssrc_, 1200);
     packetizer_->setPayloadType(96);  // H264 动态 PT
     packetizer_->setCallback([this](const uint8_t* d, size_t n) {
+        ++videoPackets_;
+        videoOctets_ += static_cast<uint32_t>(n > 12 ? n - 12 : 0);
         sendSrtp(d, n);
     });
 }
@@ -200,6 +203,7 @@ void WebRtcTransport::onVideoPacket(const MediaPacket& pkt) {
     uint32_t dts90 = pkt.timestamp * 90;
     uint32_t pts90 = dts90 + uint32_t(cts) * 90;
     packetizer_->packetize(nalus, pts90, pkt.isKeyframe);
+    maybeSendSenderReports(pkt.timestamp);
 }
 
 void WebRtcTransport::setAudioPayloadType(int pt) {
@@ -221,6 +225,33 @@ void WebRtcTransport::onAudioPacket(const MediaPacket& pkt) {
     if (!sentKeyframe_) return;  // 与视频同时开始，避免先听到声音再出画面
     if (!opus_->ready()) return;
     opus_->feed(d + 2, pkt.data.size() - 2, pkt.timestamp);
+    maybeSendSenderReports(pkt.timestamp);
+}
+
+void WebRtcTransport::sendRtcp(std::vector<uint8_t> pkt) {
+    if (!dtlsReady_ || !srtpSend_ || !ice_) return;
+    pkt.resize(pkt.size() + 64);  // SRTCP 尾部（index + auth tag）
+    int n = srtpSend_->protectRtcp(pkt.data(), static_cast<int>(pkt.size() - 64), static_cast<int>(pkt.size()));
+    if (n > 0) ice_->send(pkt.data(), static_cast<size_t>(n));
+}
+
+void WebRtcTransport::maybeSendSenderReports(uint32_t mediaTsMs) {
+    int64_t now = IceAgent::steadyMs();
+    lastMediaTsMs_ = mediaTsMs;
+    lastMediaSteadyMs_ = now;
+    if (!sentKeyframe_ || now - lastSrMs_ < 1000) return;
+    lastSrMs_ = now;
+    // NTP 时间（1900 纪元，32.32 定点）
+    auto wall = std::chrono::system_clock::now().time_since_epoch();
+    uint64_t us = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(wall).count());
+    uint64_t secs = us / 1000000 + 2208988800ULL;
+    uint64_t frac = ((us % 1000000) << 32) / 1000000;
+    uint64_t ntp = (secs << 32) | frac;
+    // 两路 SR 使用同一个媒体时刻：视频 RTP = 毫秒 × 90；音频 RTP = 基数 + 毫秒 × 48
+    uint32_t ms = mediaTsMs;
+    sendRtcp(Rtcp::buildSR(ssrc_, ntp, ms * 90u, videoPackets_, videoOctets_));
+    if (opus_ && audioPt_ >= 0 && audioPackets_ > 0)
+        sendRtcp(Rtcp::buildSR(audioSsrc_, ntp, audioTsBase_ + ms * 48u, audioPackets_, audioOctets_));
 }
 
 void WebRtcTransport::sendOpus(const uint8_t* data, size_t len, uint32_t ts48k) {
@@ -231,6 +262,8 @@ void WebRtcTransport::sendOpus(const uint8_t* data, size_t len, uint32_t ts48k) 
     h.ssrc = audioSsrc_;
     h.marker = 0;
     auto pkt = RtpPacket::build(h, data, len);
+    ++audioPackets_;
+    audioOctets_ += static_cast<uint32_t>(len);
     sendSrtp(pkt.data(), pkt.size());
 }
 

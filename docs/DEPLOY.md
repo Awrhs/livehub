@@ -78,7 +78,7 @@ RTMP/SRT 推流端口不经过反向代理，直接映射到容器。
 | `LIVEHUB_MEDIA_RTMP_PORT` | `1935` | 媒体服务器 RTMP 端口 |
 | `LIVEHUB_MEDIA_SRT_PORT` | `10080` | 媒体服务器 SRT 端口，0 为关闭 |
 | `LIVEHUB_WEBRTC_CANDIDATE_IP` | 空 | 设置后开启 WebRTC 播放（服务器对外 IP） |
-| `LIVEHUB_WEBRTC_PORT_MIN` / `_MAX` | `50000` / `50099` | WebRTC UDP 端口范围 |
+| `LIVEHUB_WEBRTC_UDP_PORT` | `50000` | WebRTC 共用的 UDP 端口 |
 
 内部密钥（媒体服务器管理令牌、回调密钥）首次启动时自动生成并保存在数据库中。
 
@@ -89,11 +89,13 @@ RTMP/SRT 推流端口不经过反向代理，直接映射到容器。
 ```bash
 docker run ... \
   -e LIVEHUB_WEBRTC_CANDIDATE_IP=<服务器公网 IP> \
-  -p 50000-50099:50000-50099/udp \
+  -p 50000:50000/udp \
   ghcr.io/awrhs/livehub:latest
 ```
 
-- 每个 WebRTC 观众占用一个 UDP 端口，端口范围由 `LIVEHUB_WEBRTC_PORT_MIN` / `LIVEHUB_WEBRTC_PORT_MAX` 配置（默认 50000–50099，即最多 100 名 WebRTC 观众），映射的端口范围必须与之一致。
+- 所有 WebRTC 观众共用一个 UDP 端口（默认 50000，可用 `LIVEHUB_WEBRTC_UDP_PORT` 修改），防火墙只需放行这一个端口。
+- 服务器按 RTCP 发送报告对齐音视频时间，长时间观看不会出现音画偏差。
+- 推流请关闭 B 帧（OBS：x264 选项填 `bframes=0`，或使用硬件编码器的「无 B 帧」设置），浏览器的 WebRTC 播放对 B 帧支持不好。
 - 音频由服务器实时从 AAC 转码为 Opus。
 - 浏览器关闭后 30 秒内自动回收会话与端口。
 - 开启后播放器出现「超低延迟（WebRTC）」选项；其余观众仍可使用 HLS / FLV。

@@ -27,6 +27,7 @@ JWT_SECRET=ext-secret-ext-secret-ext-secret
 ADMIN_TOKEN=$ADM
 LOG_LEVEL=INFO
 ENABLE_RATE_LIMIT=false
+WEBRTC_UDP_PORT=50000
 [vhost:__default__]
 EOF
 

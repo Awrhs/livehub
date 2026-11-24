@@ -20,14 +20,14 @@ uint32_t randomSsrc() {
 
 WebRtcIngest::WebRtcIngest(EventLoop* loop, uint16_t udpPort, std::string ufrag,
                            std::string pwd, std::string localFingerprint,
-                           std::shared_ptr<MediaStream> stream)
+                           std::shared_ptr<MediaStream> stream, IceMux* mux)
     : loop_(loop),
       ufrag_(std::move(ufrag)),
       pwd_(std::move(pwd)),
       localFingerprint_(std::move(localFingerprint)),
       stream_(std::move(stream)),
       ssrc_(randomSsrc()) {
-    ice_ = std::make_unique<IceAgent>(loop, udpPort);
+    ice_ = mux ? std::make_unique<IceAgent>(loop, mux, ufrag_) : std::make_unique<IceAgent>(loop, udpPort);
     ice_->setPassword(pwd_);
     ice_->setOnData(
         [this](const uint8_t* d, size_t n, const sockaddr_in& p) {

@@ -226,6 +226,7 @@ void Config::applyKv(const std::string& keyIn, const std::string& value) {
     else if (key == "TRANSCODE_TASK_TTL_SEC") transcodeTaskTtlSec_ = asInt();
     else if (key == "INTERNAL_PUBLISH_TOKEN") internalPublishToken_ = value;
     else if (key == "WEBRTC_PORT_MIN") webrtcPortMin_ = asInt();
+    else if (key == "WEBRTC_UDP_PORT") webrtcUdpPort_ = asInt();
     else if (key == "ENABLE_TIMESHIFT") enableTimeshift_ = (value != "0" && value != "false");
     else if (key == "WEBRTC_PORT_MAX") webrtcPortMax_ = asInt();
     else if (key == "SRT_PORT") srtPort_ = static_cast<uint16_t>(asInt());
