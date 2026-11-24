@@ -47,7 +47,7 @@ type Config struct {
 	TrustProxy        bool   // 信任 X-Forwarded-For / X-Forwarded-Proto（部署在反向代理后）
 	SecureCookies     string // auto | true | false
 	BcryptCost        int
-	RegisterPerMin int // 每 IP 每分钟注册次数上限
+	RegisterPerMin    int // 每 IP 每分钟注册次数上限
 	LogLevel          string
 }
 
