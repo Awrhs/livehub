@@ -49,16 +49,16 @@ type Config struct {
 	SecureCookies     string // auto | true | false
 	BcryptCost        int
 	// 邮件（SMTP）：未配置 Host/From 时邮件功能关闭
-	SMTPHost       string
-	SMTPPort       int
-	SMTPUser       string
-	SMTPPassword   string
-	SMTPFrom       string
-	SMTPTLS        string
-	RegisterPerMin int // 每 IP 每分钟注册次数上限
+	SMTPHost          string
+	SMTPPort          int
+	SMTPUser          string
+	SMTPPassword      string
+	SMTPFrom          string
+	SMTPTLS           string
+	RegisterPerMin    int // 每 IP 每分钟注册次数上限
 	ReconnectGraceSec int // 主播断线后在此时间内重连视为同一场直播（0 = 关闭）
-	MinFreeMB      int // 数据目录剩余空间低于此值（MB）时停止录像并告警
-	LogLevel       string
+	MinFreeMB         int // 数据目录剩余空间低于此值（MB）时停止录像并告警
+	LogLevel          string
 }
 
 func env(key, def string) string {
