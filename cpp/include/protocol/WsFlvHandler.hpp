@@ -8,6 +8,8 @@
 
 namespace streaming {
 
+class TcpConnection;
+
 class HttpServer;
 class HttpRequest;
 class MediaStream;
