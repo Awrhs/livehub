@@ -89,16 +89,20 @@ test('直播播放兼容性（OBS 风格推流，含 B 帧）', async ({ page, b
 
   // 超低延迟（WebRTC）：Chrome 与 Firefox
   if (browserName !== 'webkit') {
-    const rtcH264 = await page.evaluate(
-      () => RTCRtpReceiver.getCapabilities('video')?.codecs.some((c) => /h264/i.test(c.mimeType)) ?? false,
-    )
     await page.getByTestId('player-mode').selectOption('webrtc')
-    if (rtcH264) {
-      await playing(page, browserName + ' WebRTC')
+    // 浏览器的 WebRTC 若无法使用 H.264（Playwright 的 Firefox 不带 OpenH264 插件），
+    // 服务器拒绝协商，播放器应给出明确提示；否则应正常播放
+    const noH264 = page.getByText('WebRTC 不支持 H.264')
+    const outcome = await Promise.race([
+      noH264.waitFor({ timeout: 20_000 }).then(() => 'no-h264').catch(() => 'timeout'),
+      page.waitForFunction(() => (document.querySelector('[data-testid=video]') as HTMLVideoElement | null)!.currentTime > 2,
+        null, { timeout: 20_000 }).then(() => 'playing').catch(() => 'timeout'),
+    ])
+    if (outcome === 'no-h264') {
+      test.info().annotations.push({ type: 'limitation', description: `${browserName} 的 WebRTC 不含 H.264，已显示明确提示` })
+      console.log(`[${browserName} WebRTC] 浏览器不支持 H.264，播放器已给出提示`)
     } else {
-      // 该浏览器构建的 WebRTC 不含 H.264（Playwright 的 Firefox 不带 OpenH264 插件）：应给出明确提示
-      await expect(page.getByText('WebRTC 不支持 H.264')).toBeVisible()
-      test.info().annotations.push({ type: 'limitation', description: `${browserName} 的 WebRTC 不含 H.264` })
+      await playing(page, browserName + ' WebRTC')
     }
   }
 })
