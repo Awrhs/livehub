@@ -141,6 +141,14 @@ jobs:
         run: |
           cd web && npm install --no-audit --no-fund && cd ..
           platform/e2e/browser.sh "$PWD/platform/livehub" "$PWD/cpp/build/bin/streaming_server"
+      - name: 浏览器兼容性（Chrome / Firefox / WebKit）
+        if: success() || steps.e2e.conclusion == 'failure'
+        env:
+          E2E_ARTIFACT_DIR: ${{ github.workspace }}/e2e-artifacts/compat
+        run: |
+          cd web && npx playwright install --with-deps firefox webkit && cd ..
+          sudo apt-get install -y gstreamer1.0-libav gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly || true
+          platform/e2e/browser.sh "$PWD/platform/livehub" "$PWD/cpp/build/bin/streaming_server" --config playwright.compat.config.ts
       - uses: actions/upload-artifact@v4
         if: always()
         with:

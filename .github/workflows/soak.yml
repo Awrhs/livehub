@@ -1,0 +1,66 @@
+name: Soak
+
+# LiveHub 30 分钟长稳测试：两路直播、反复进出的聊天用户与 FLV/HLS 观众、主播断线重推，
+# 检查平台与媒体服务器的内存、文件描述符、线程数是否持续增长。
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: 持续分钟数
+        default: '30'
+  push:
+    branches: [ main ]
+    paths:
+      - 'platform/**'
+      - 'cpp/src/**'
+      - 'cpp/include/**'
+      - '.github/workflows/soak.yml'
+  schedule:
+    - cron: '0 18 * * *'
+
+concurrency:
+  group: soak-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  soak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: 安装依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ ccache ffmpeg jq pkg-config libssl-dev libsrt-openssl-dev libsrtp2-dev \
+            libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev
+      - uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-release-${{ hashFiles('cpp/src/**', 'cpp/include/**', 'cpp/CMakeLists.txt', 'cpp/src/CMakeLists.txt') }}
+          restore-keys: ccache-release-
+      - name: 构建媒体服务器
+        env:
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
+        run: |
+          cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTS=OFF -DENABLE_TOOLS=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build cpp/build --target streaming_server -j"$(nproc)"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: platform/go.mod
+      - name: 构建 LiveHub
+        working-directory: platform
+        run: |
+          go mod tidy
+          go build -o livehub ./cmd/livehub
+          go build -o /dev/null ./e2e/loadgen
+      - name: 长稳测试
+        env:
+          SOAK_MINUTES: ${{ github.event.inputs.minutes || '30' }}
+          E2E_ARTIFACT_DIR: ${{ github.workspace }}/soak-artifacts
+        run: platform/e2e/soak.sh "$PWD/platform/livehub" "$PWD/cpp/build/bin/streaming_server"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: soak
+          path: soak-artifacts

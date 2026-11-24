@@ -280,6 +280,38 @@ else
   grep -i "录像\|record" "$WORK/livehub.log" | tail -20
 fi
 
+echo "== OBS 风格推流：1080p60、High profile、B 帧、6 Mbps"
+ffmpeg -hide_banner -loglevel error -re -f lavfi -i "testsrc2=size=1920x1080:rate=60" \
+  -f lavfi -i "sine=frequency=440:sample_rate=48000" -t 25 \
+  -c:v libx264 -preset superfast -profile:v high -bf 2 -g 120 -b:v 6000k -maxrate 6000k -bufsize 12000k -pix_fmt yuv420p \
+  -c:a aac -b:a 160k -f flv "$RTMP/$KEY" >"$ART/push_obs.log" 2>&1 &
+OBS_PID=$!
+PIDS+=("$OBS_PID")
+wait_for 20 is_live bob && pass "1080p60 推流开播" || fail "1080p60 推流未开播"
+ffprobe -v error -rw_timeout 15000000 -select_streams v:0 -show_entries stream=width,height,profile,has_b_frames,avg_frame_rate \
+  -of default=nw=1 "$BASE/live/bob.flv" >"$WORK/obs.txt" 2>&1
+echo "  [INFO] $(tr '\n' ' ' <"$WORK/obs.txt")"
+grep -q "width=1920" "$WORK/obs.txt" && grep -q "profile=High" "$WORK/obs.txt" && pass "FLV 拉流保留 1080p High profile" || fail "FLV 流参数异常"
+grep -q "has_b_frames=[1-9]" "$WORK/obs.txt" && pass "B 帧透传" || fail "B 帧丢失"
+hls_new() { curl -sf "$BASE/live/bob.m3u8" | grep -q '#EXTINF'; }
+if wait_for 20 hls_new && ffprobe -v error -show_entries format=duration -of csv=p=0 "$BASE/live/bob.m3u8" >"$WORK/obs_hls.txt" 2>&1; then
+  pass "1080p60 HLS 可播放"
+else
+  fail "1080p60 HLS 播放失败: $(head -c 300 "$WORK/obs_hls.txt")"
+fi
+# 主播网络中断后立即重连（OBS 自动重连）：旧连接被强杀，新连接马上推流
+kill -9 "$OBS_PID" 2>/dev/null
+push "$KEY" 20 push_reconnect &
+PIDS+=($!)
+sleep 2
+if wait_for 20 is_live bob; then pass "断线立即重连后恢复直播"; else fail "断线重连后未恢复直播"; fi
+if ffprobe -v error -rw_timeout 15000000 -show_entries stream=codec_name -of csv=p=0 "$BASE/live/bob.flv" 2>&1 | grep -q h264; then
+  pass "重连后可正常播放"
+else
+  fail "重连后无法播放"
+fi
+wait_for 40 is_offline bob
+
 echo "== SRT 推流"
 SID="#!::r=live/$KEY,m=publish"
 SRT_URL="srt://127.0.0.1:10080?streamid=$(jq -rn --arg s "$SID" '$s|@uri')&latency=200000"
