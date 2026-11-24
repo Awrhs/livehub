@@ -70,8 +70,8 @@ std::shared_ptr<WebRtcTransport> WebRtcManager::createSubscriber(
         std::lock_guard<std::mutex> lk(mu_);
         sessions_[sessionId] = transport;
     }
-    LOG_INFO("WebRtcManager: WHEP session %s on UDP %u", sessionId.c_str(),
-             transport->port());
+    LOG_INFO("WebRtcManager: WHEP session %s (stream %s) on UDP %u", sessionId.c_str(),
+             streamKey.c_str(), transport->port());
     return transport;
 }
 

@@ -39,6 +39,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: 配置文档与代码一致性
+        run: cpp/tools/check_config_docs.sh
+
       - name: Install dependencies
         run: |
           sudo apt-get update

@@ -135,7 +135,9 @@ if $PY -c "import aiortc" 2>/dev/null; then
     # AAC→Opus 转码：6 秒内应收到上百个 20ms 音频帧
     [ "${af:-0}" -ge 100 ] && pass "WHEP 音频（Opus，$af 帧）" || fail "WHEP 未收到音频（$W）"
     echo "$W" | grep -q 'deleted=200' && pass "WHEP 会话可由客户端 DELETE 结束" || fail "WHEP DELETE 失败（$W）"
-    grep -q 'WHEP 会话 .* 已由客户端结束' "$LOG" && pass "服务器已释放 WHEP 会话" || fail "服务器未记录 WHEP 会话结束"
+    ended=0
+    for _ in $(seq 1 10); do grep -q 'WHEP 会话 .* 已由客户端结束' "$LOG" && { ended=1; break; }; sleep 0.5; done
+    [ $ended = 1 ] && pass "服务器已释放 WHEP 会话" || fail "服务器未记录 WHEP 会话结束"
     wait "$WHIP_PID"
     W=$(cat "$WORK/whip.out")
     echo "$W" | grep -q 'state=connected' && pass "WHIP 会话保持连接（$W）" \

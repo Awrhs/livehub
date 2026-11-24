@@ -7,7 +7,8 @@
 # ---- 全局 ----
 HTTP_PORT=8080
 RTMP_PORT=1935
-SRT_PORT=19535
+SRT_PORT=19535            # 0 = 关闭 SRT
+RTSP_PORT=8554            # 0 = 关闭 RTSP 拉流
 IO_THREADS=4
 MAX_CONNECTIONS=10000      # 每个服务（RTMP/HTTP）连接上限，0=不限
 MAX_CONNECTIONS_PER_IP=0   # 单 IP 连接上限，0=不限（NAT 场景慎用）
@@ -17,6 +18,7 @@ HLS_SEGMENT_DURATION=6
 HLS_WINDOW_SIZE=5
 HLS_OUTPUT_DIR=./hls
 DVR_DIR=./dvr              # DVR 录像/时移目录
+ENABLE_TIMESHIFT=true      # 每路直播自动保留最近分片供回看（持续写盘；不需要时关闭）
 CACHE_SIZE_MB=256
 
 # JWT 签名密钥（vhost 未单独配置时回落到此值）
@@ -46,6 +48,8 @@ RATE_ADMIN_PER_MIN=20         # /api/nodes /api/cluster /api/vhosts /api/dvr /ap
 NODE_ID=node-1
 # 边缘节点：配置源站后本地未命中的流会 HTTP-FLV 回源
 # ORIGIN_URL=http://origin.example.com:8080
+# 边缘节点：回源流无观众（无订阅者且无 HLS 请求）超过该秒数后停止回源
+# EDGE_IDLE_SEC=30
 # 集群节点：ip:httpPort:rtmpPort，逗号分隔
 # CLUSTER_NODES=10.0.0.2:8080:1935,10.0.0.3:8080:1935
 
@@ -53,6 +57,17 @@ TRANSCODE_PROFILES=480p,720p
 TRANSCODE_CONCURRENCY=2
 # 终态转码任务保留时长（秒），GET /api/transcode 可查；超时自动清理
 TRANSCODE_TASK_TTL_SEC=3600
+# 转码结果推回本机时携带的令牌（?internal=<token>），供业务平台的 on_publish 鉴权识别内部推流
+# INTERNAL_PUBLISH_TOKEN=
+
+# WebRTC（WHIP 推流 / WHEP 播放）
+# 写入 SDP candidate 的对外 IP（浏览器需能以 UDP 访问）
+# WEBRTC_CANDIDATE_IP=203.0.113.10
+# 单端口复用：所有会话共用该 UDP 端口（推荐；防火墙只需放行一个端口）
+# WEBRTC_UDP_PORT=50000
+# 未启用单端口复用时，每个会话从该范围分配一个 UDP 端口
+# WEBRTC_PORT_MIN=50000
+# WEBRTC_PORT_MAX=50999
 
 # Redis 分布式状态（可选；HOST 留空 = 纯单机内存模式）：
 # - 分布式限流：固定窗口计数 rl:<policy>:<ip>，跨节点共享配额
@@ -67,9 +82,13 @@ TRANSCODE_TASK_TTL_SEC=3600
 # ---- 默认 Vhost（可选）----
 [vhost:__default__]
 # 鉴权：true 时推/拉流需在 stream key 中带 ?token=<jwt>
+# enabled=true            # false：拒绝该 vhost 的全部推拉流
+# default_app=live
 # enable_auth=false
 # jwt_secret=
 # allow_apps=live,record
+# webhook_on_connect=http://127.0.0.1:9000/hooks/connect
+# webhook_on_close=http://127.0.0.1:9000/hooks/close
 # webhook_on_publish=http://127.0.0.1:9000/hooks/publish
 # webhook_on_play=http://127.0.0.1:9000/hooks/play
 # webhook_on_unpublish=http://127.0.0.1:9000/hooks/unpublish
