@@ -23,6 +23,7 @@ var reserved = map[string]bool{
 	"notifications": true, "help": true, "whip": true, "whep": true, "metrics": true, "health": true,
 	"healthz": true, "root": true, "system": true, "livehub": true, "favicon": true, "robots": true,
 	"category": true, "categories": true, "browse": true, "moderator": true, "support": true,
+	"forgot": true, "avatars": true, "thumbs": true, "vods": true, "events": true,
 }
 
 var (

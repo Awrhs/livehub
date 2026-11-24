@@ -40,6 +40,7 @@ func (s *Server) handleAdminStats(w http.ResponseWriter, r *http.Request, _ *sto
 		"users": users, "live_channels": len(live), "viewers": viewers,
 		"pending_requests": pendingTotal, "media_healthy": mediaOK, "media_enabled": s.Media != nil,
 		"open_reports": s.Store.OpenReportCount(ctx),
+		"mail_enabled": s.Mailer != nil,
 	})
 }
 

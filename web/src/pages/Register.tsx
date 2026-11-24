@@ -12,6 +12,7 @@ export default function Register() {
   const [password, setPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [invite, setInvite] = useState('')
+  const [email, setEmail] = useState('')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -32,7 +33,7 @@ export default function Register() {
     setBusy(true)
     setErr('')
     try {
-      const m = await post<Me>('/auth/register', { username, password, display_name: displayName, invite })
+      const m = await post<Me>('/auth/register', { username, password, display_name: displayName, invite, email })
       setMe(m)
       await refresh()
       nav(m.role === 'admin' ? '/admin' : '/dashboard', { replace: true })
@@ -62,6 +63,13 @@ export default function Register() {
           <input name="password" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} maxLength={72} />
           <div className="hint">{t('auth.passwordHint')}</div>
         </label>
+        {site?.mail_enabled && (
+          <label className="field">
+            <span>{t('email.optional')}</span>
+            <input name="email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <div className="hint">{t('email.hint')}</div>
+          </label>
+        )}
         {needInvite && (
           <label className="field">
             <span>{t('auth.invite')}</span>

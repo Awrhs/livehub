@@ -16,6 +16,7 @@ import (
 
 	"livehub/internal/chat"
 	"livehub/internal/config"
+	"livehub/internal/mail"
 	"livehub/internal/media"
 	"livehub/internal/ratelimit"
 	"livehub/internal/store"
@@ -30,6 +31,8 @@ type Server struct {
 	Hub        *chat.Hub
 	Log        *slog.Logger
 	HookSecret string
+	// Mailer 发信（未配置 SMTP 时为 nil，邮件相关功能关闭）
+	Mailer mail.Sender
 	// InternalToken 媒体服务器内部推流（多清晰度转码回推）携带的令牌
 	InternalToken string
 	Static        http.Handler
@@ -108,6 +111,12 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/auth/register", s.handleRegister)
 	mux.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
 	mux.HandleFunc("POST /api/v1/auth/logout", s.handleLogout)
+	mux.HandleFunc("POST /api/v1/auth/verify-email", s.handleVerifyEmail)
+	mux.HandleFunc("POST /api/v1/auth/forgot", s.handleForgotPassword)
+	mux.HandleFunc("POST /api/v1/auth/reset", s.handleResetPassword)
+	mux.HandleFunc("POST /api/v1/me/email", s.requireUser(s.handleSetEmail))
+	mux.HandleFunc("POST /api/v1/me/email/resend", s.requireUser(s.handleResendVerification))
+	mux.HandleFunc("POST /api/v1/admin/mail/test", s.requireAdmin(s.handleAdminTestMail))
 	mux.HandleFunc("GET /api/v1/me", s.requireUser(s.handleMe))
 	mux.HandleFunc("PATCH /api/v1/me", s.requireUser(s.handleUpdateMe))
 	mux.HandleFunc("POST /api/v1/me/password", s.requireUser(s.handleChangePassword))

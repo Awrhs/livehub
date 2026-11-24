@@ -47,6 +47,13 @@ type Config struct {
 	TrustProxy        bool   // 信任 X-Forwarded-For / X-Forwarded-Proto（部署在反向代理后）
 	SecureCookies     string // auto | true | false
 	BcryptCost        int
+	// 邮件（SMTP）：未配置 Host/From 时邮件功能关闭
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUser     string
+	SMTPPassword string
+	SMTPFrom     string
+	SMTPTLS      string
 	RegisterPerMin    int // 每 IP 每分钟注册次数上限
 	LogLevel          string
 }
@@ -118,6 +125,22 @@ func Load() (*Config, error) {
 	if c.WebRTCPortMax, err = envInt("LIVEHUB_WEBRTC_PORT_MAX", 50099); err != nil {
 		return nil, err
 	}
+	c.SMTPHost = env("LIVEHUB_SMTP_HOST", "")
+	c.SMTPUser = env("LIVEHUB_SMTP_USER", "")
+	c.SMTPPassword = env("LIVEHUB_SMTP_PASSWORD", "")
+	c.SMTPFrom = env("LIVEHUB_SMTP_FROM", "")
+	c.SMTPTLS = strings.ToLower(env("LIVEHUB_SMTP_TLS", "starttls"))
+	if c.SMTPPort, err = envInt("LIVEHUB_SMTP_PORT", 0); err != nil {
+		return nil, err
+	}
+	switch c.SMTPTLS {
+	case "starttls", "tls", "none":
+	default:
+		return nil, fmt.Errorf("LIVEHUB_SMTP_TLS 只能是 starttls/tls/none")
+	}
+	if c.SMTPHost != "" && c.SMTPFrom == "" {
+		return nil, fmt.Errorf("配置了 LIVEHUB_SMTP_HOST 时必须配置 LIVEHUB_SMTP_FROM（发件人地址）")
+	}
 	if c.RegisterPerMin, err = envInt("LIVEHUB_REGISTER_PER_MIN", 5); err != nil {
 		return nil, err
 	}
@@ -159,6 +182,9 @@ func Load() (*Config, error) {
 	}
 	return c, nil
 }
+
+// MailEnabled 是否配置了发信。
+func (c *Config) MailEnabled() bool { return c.SMTPHost != "" && c.SMTPFrom != "" }
 
 // Embedded 是否由平台拉起媒体服务器子进程。
 func (c *Config) Embedded() bool { return c.MediaBin != "" }

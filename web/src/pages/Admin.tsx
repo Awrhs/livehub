@@ -15,6 +15,7 @@ interface Stats {
   media_healthy: boolean
   media_enabled: boolean
   open_reports: number
+  mail_enabled: boolean
 }
 
 export default function Admin() {
@@ -46,8 +47,9 @@ export default function Admin() {
 }
 
 function Overview() {
-  const { t } = useI18n()
+  const { t, errText } = useI18n()
   const [s, setS] = useState<Stats | null>(null)
+  const [mailMsg, setMailMsg] = useState('')
   useEffect(() => {
     const load = () => get<Stats>('/admin/stats').then(setS).catch(() => {})
     load()
@@ -88,6 +90,30 @@ function Overview() {
           )}
         </div>
         <div className="k">{t('admin.mediaStatus')}</div>
+      </div>
+      <div className="stat">
+        <div className="v" style={{ fontSize: 18, paddingTop: 8 }}>
+          {s.mail_enabled ? (
+            <button
+              className="small"
+              onClick={async () => {
+                try {
+                  await post('/admin/mail/test')
+                  setMailMsg(t('admin.mailTestOk'))
+                } catch (e) {
+                  setMailMsg(errText(e))
+                }
+              }}
+            >
+              {t('admin.mailTest')}
+            </button>
+          ) : (
+            <span className="badge">{t('admin.mediaDisabled')}</span>
+          )}
+        </div>
+        <div className="k">
+          {t('admin.mailStatus')} {mailMsg && <span className="dim">· {mailMsg}</span>}
+        </div>
       </div>
     </div>
   )

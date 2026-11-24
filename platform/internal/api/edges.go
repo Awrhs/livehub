@@ -21,10 +21,13 @@ func (s *Server) initEdges() {
 	}
 }
 
-// checkEdges 探测边缘节点健康状态（/api/health）。
-func (s *Server) checkEdges(ctx context.Context) {
+// checkEdges 探测边缘节点健康状态（/api/health）；onlyUnhealthy 时只探测当前不健康的节点。
+func (s *Server) checkEdges(ctx context.Context, onlyUnhealthy ...bool) {
 	client := &http.Client{Timeout: 3 * time.Second}
 	for _, e := range s.edges {
+		if len(onlyUnhealthy) > 0 && onlyUnhealthy[0] && e.healthy.Load() {
+			continue
+		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, e.url+"/api/health", nil)
 		if err != nil {
 			continue
@@ -62,14 +65,15 @@ func (s *Server) runEdgeChecks(ctx context.Context) {
 		return
 	}
 	s.checkEdges(ctx)
-	t := time.NewTicker(10 * time.Second)
+	// 不健康的节点每 2 秒重试（尽快恢复分发），健康节点每 10 秒复查
+	t := time.NewTicker(2 * time.Second)
 	defer t.Stop()
-	for {
+	for i := 1; ; i++ {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			s.checkEdges(ctx)
+			s.checkEdges(ctx, i%5 != 0)
 		}
 	}
 }

@@ -10,6 +10,7 @@ import Admin from './pages/Admin'
 import NotFound from './pages/NotFound'
 import Video from './pages/Video'
 import Following from './pages/Following'
+import { Forgot, ResetPassword, VerifyEmail } from './pages/AccountRecovery'
 import { useSession } from './session'
 import { useI18n } from './i18n'
 
@@ -18,7 +19,7 @@ export default function App() {
   const { t } = useI18n()
   const loc = useLocation()
   // 频道页（/<用户名>）使用全宽布局
-  const reserved = ['/', '/login', '/register', '/dashboard', '/settings', '/admin', '/following', '/search']
+  const reserved = ['/', '/login', '/register', '/dashboard', '/settings', '/admin', '/following', '/search', '/forgot', '/reset-password', '/verify-email']
   const isChannel = loc.pathname.split('/').length === 2 && !reserved.includes(loc.pathname)
 
   return (
@@ -37,6 +38,9 @@ export default function App() {
             <Route path="/settings" element={<Settings />} />
             <Route path="/admin" element={<Admin />} />
             <Route path="/following" element={<Following />} />
+            <Route path="/forgot" element={<Forgot />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/verify-email" element={<VerifyEmail />} />
             <Route path="/videos/:id" element={<Video />} />
             <Route path="/:slug" element={<ChannelPage />} />
             <Route path="*" element={<NotFound />} />

@@ -76,6 +76,12 @@ EOF
 PIDS+=($!)
 
 echo "== 启动 LiveHub（内嵌媒体服务器）"
+# 有 mailpit（CI 中以容器运行）时开启邮件功能
+if curl -sf http://127.0.0.1:8025/api/v1/messages >/dev/null 2>&1; then
+  export LIVEHUB_SMTP_HOST=127.0.0.1 LIVEHUB_SMTP_PORT=1025 LIVEHUB_SMTP_TLS=none \
+    LIVEHUB_SMTP_FROM="LiveHub <noreply@livehub.test>"
+  MAILPIT=1
+fi
 LIVEHUB_EDGE_URLS=http://127.0.0.1:8082 LIVEHUB_ADDR=:8000 LIVEHUB_DATA_DIR="$WORK/data" LIVEHUB_MEDIA_BIN="$MEDIA_BIN" \
   LIVEHUB_MEDIA_RTMP_PORT=1935 LIVEHUB_MEDIA_HTTP_PORT=8081 LIVEHUB_MEDIA_SRT_PORT=10080 \
   LIVEHUB_BCRYPT_COST=4 LIVEHUB_LOG_LEVEL=debug \
@@ -115,6 +121,52 @@ api "$A" PATCH "/admin/users/$BOB_ID" '{"stream_status":"approved"}' >/dev/null
 [ "$(status)" = "200" ] && pass "管理员批准开播" || fail "批准失败 $(status)"
 [ "$(api "$B" GET /me | jq -r .can_stream)" = "true" ] && pass "bob 可开播" || fail "bob 不可开播"
 
+echo "== 邮件：验证邮箱、找回密码（mailpit）"
+# mail_token <收件人> <主题关键字>：从 mailpit 取最新一封匹配邮件中的令牌
+mail_token() {
+  local id
+  id=$(curl -s "http://127.0.0.1:8025/api/v1/search?query=to:$1" |
+    jq -r --arg s "$2" '[.messages[] | select(.Subject | contains($s))][0].ID // empty')
+  [ -n "$id" ] || return 1
+  curl -s "http://127.0.0.1:8025/api/v1/message/$id" | jq -r .Text | grep -o 'token=[A-Za-z0-9%]*' | head -1 | cut -d= -f2
+}
+wait_token() { # wait_token <收件人> <主题关键字>
+  local t
+  for _ in $(seq 1 30); do
+    t=$(mail_token "$1" "$2") && [ -n "$t" ] && { echo "$t"; return 0; }
+    sleep 0.5
+  done
+  return 1
+}
+if [ -n "${MAILPIT:-}" ]; then
+  [ "$(curl -s "$BASE/api/v1/site" | jq -r .mail_enabled)" = "true" ] && pass "邮件服务已启用" || fail "邮件服务未启用"
+  api "$C" POST /me/email '{"email":"carol@example.com"}' >/dev/null
+  if VT=$(wait_token carol@example.com 验证); then
+    pass "收到验证邮件（SMTP 实际投递）"
+    api "$C" POST /auth/verify-email "{\"token\":\"$VT\"}" >/dev/null
+    [ "$(api "$C" GET /me | jq -r .email_verified)" = "true" ] && pass "邮箱验证成功" || fail "邮箱未验证"
+  else
+    fail "没有收到验证邮件"
+    grep -i "邮件\|mail" "$WORK/livehub.log" | tail -5
+  fi
+  api "$WORK/anon.jar" POST /auth/forgot '{"login":"carol"}' >/dev/null
+  if RT=$(wait_token carol@example.com 重置); then
+    pass "收到重置密码邮件"
+    api "$WORK/anon.jar" POST /auth/reset "{\"token\":\"$RT\",\"password\":\"brandnew123\"}" >/dev/null
+    [ "$(status)" = "200" ] && pass "通过邮件链接重置密码" || fail "重置密码失败 $(status)"
+    api "$C" POST /auth/login '{"username":"carol","password":"brandnew123"}' >/dev/null
+    [ "$(status)" = "200" ] && pass "新密码可登录" || fail "新密码登录失败 $(status)"
+    api "$WORK/carol3.jar" POST /auth/login '{"username":"carol","password":"password123"}' >/dev/null
+    [ "$(status)" = "401" ] && pass "旧密码失效" || fail "旧密码仍可登录 $(status)"
+    api "$WORK/anon.jar" POST /auth/reset "{\"token\":\"$RT\",\"password\":\"another12345\"}" >/dev/null
+    [ "$(status)" = "400" ] && pass "重置链接只能用一次" || fail "重置链接可重复使用"
+  else
+    fail "没有收到重置密码邮件"
+  fi
+else
+  echo "  [SKIP] 未检测到 mailpit，跳过邮件测试"
+fi
+
 echo "== 错误推流码被拒绝"
 timeout 15 bash -c "$(declare -f push); RTMP=$RTMP ART=$ART push 'bob?key=wrong' 5 push_wrongkey"
 if is_offline bob; then pass "错误密钥推流被拒绝"; else fail "错误密钥推流未被拒绝"; fi
@@ -153,8 +205,8 @@ code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/live/../api/streams")
 [ "$code" != "200" ] && pass "播放代理不暴露媒体管理 API" || fail "播放代理泄露管理 API"
 
 echo "== 边缘节点分发"
-EFLV=$(curl -s "$BASE/api/v1/channels/bob" | jq -r .channel.playback.flv)
-if [[ "$EFLV" == http://127.0.0.1:8082/live/bob.flv ]]; then pass "播放地址指向边缘节点"; else fail "播放地址=$EFLV"; fi
+on_edge() { [ "$(curl -s "$BASE/api/v1/channels/bob" | jq -r .channel.playback.flv)" = "http://127.0.0.1:8082/live/bob.flv" ]; }
+if wait_for 10 on_edge; then pass "播放地址指向边缘节点"; else fail "播放地址=$(curl -s "$BASE/api/v1/channels/bob" | jq -r .channel.playback.flv)"; fi
 if ffprobe -v error -rw_timeout 15000000 -show_entries stream=codec_name -of csv=p=0 "http://127.0.0.1:8082/live/bob.flv" >"$WORK/edge.txt" 2>&1 &&
   grep -q h264 "$WORK/edge.txt"; then
   pass "边缘节点回源播放 HTTP-FLV"

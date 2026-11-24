@@ -48,11 +48,17 @@ export default function Login() {
           <span>{t('auth.password')}</span>
           <input name="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
         </label>
+        {params.get('reset') && <div className="success">{t('reset.done')}</div>}
         {err && <div className="error">{err}</div>}
         <button className="primary" type="submit" disabled={busy} style={{ width: '100%' }}>
           {t('auth.loginTitle')}
         </button>
       </form>
+      <p className="center" style={{ marginTop: 12 }}>
+        <Link to="/forgot" className="dim">
+          {t('forgot.link')}
+        </Link>
+      </p>
       {site?.registration_mode !== 'closed' && (
         <p className="dim center" style={{ marginTop: 16 }}>
           {t('auth.noAccount')} <Link to="/register">{t('nav.register')}</Link>

@@ -58,6 +58,7 @@ export interface Site {
   version: string
   ingest: Ingest
   media_enabled: boolean
+  mail_enabled: boolean
 }
 
 export interface ChatMessage {

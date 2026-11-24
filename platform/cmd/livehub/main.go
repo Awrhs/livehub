@@ -20,6 +20,7 @@ import (
 	"livehub/internal/chat"
 	"livehub/internal/config"
 	"livehub/internal/db"
+	"livehub/internal/mail"
 	"livehub/internal/media"
 	"livehub/internal/store"
 	"livehub/internal/webui"
@@ -190,6 +191,11 @@ func run() error {
 	hub := chat.NewHub()
 	srv := api.New(cfg, st, mc, hub, log, hookSecret, webui.Handler(), version)
 	srv.InternalToken = internalToken
+	if cfg.MailEnabled() {
+		srv.Mailer = mail.NewSMTP(mail.Config{Host: cfg.SMTPHost, Port: cfg.SMTPPort, User: cfg.SMTPUser,
+			Password: cfg.SMTPPassword, From: cfg.SMTPFrom, TLS: cfg.SMTPTLS})
+		log.Info("邮件服务已启用", "host", cfg.SMTPHost, "tls", cfg.SMTPTLS)
+	}
 
 	var wg sync.WaitGroup
 	if cfg.Embedded() {

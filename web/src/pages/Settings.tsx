@@ -10,6 +10,8 @@ export default function Settings() {
   const { me, setMe } = useSession()
   const [displayName, setDisplayName] = useState(me?.display_name ?? '')
   const [bio, setBio] = useState(me?.bio ?? '')
+  const { site } = useSession()
+  const [email, setEmail] = useState(me?.email ?? '')
   const [oldPw, setOldPw] = useState('')
   const [newPw, setNewPw] = useState('')
   const [msg, setMsg] = useState('')
@@ -95,6 +97,57 @@ export default function Settings() {
           {t('common.save')}
         </button>
       </form>
+      {site?.mail_enabled && (
+        <form
+          className="card"
+          onSubmit={async (e) => {
+            e.preventDefault()
+            setErr('')
+            try {
+              setMe(await post<Me>('/me/email', { email }))
+              setMsg(email ? t('email.sent') : t('common.saved'))
+            } catch (e) {
+              setErr(errText(e))
+            }
+          }}
+        >
+          <h2>{t('email.title')}</h2>
+          <label className="field">
+            <span>
+              {t('email.address')}{' '}
+              {me.email &&
+                (me.email_verified ? (
+                  <span className="badge ok">{t('email.verified')}</span>
+                ) : (
+                  <span className="badge warn">{t('email.unverified')}</span>
+                ))}
+            </span>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} data-testid="email-input" />
+            <div className="hint">{t('email.hint')}</div>
+          </label>
+          <div className="row">
+            <button className="primary" type="submit">
+              {t('common.save')}
+            </button>
+            {me.email && !me.email_verified && (
+              <button
+                type="button"
+                onClick={async () => {
+                  setErr('')
+                  try {
+                    await post('/me/email/resend')
+                    setMsg(t('email.sent'))
+                  } catch (e) {
+                    setErr(errText(e))
+                  }
+                }}
+              >
+                {t('email.resend')}
+              </button>
+            )}
+          </div>
+        </form>
+      )}
       <form className="card" onSubmit={changePw}>
         <h2>{t('settings.password')}</h2>
         <label className="field">

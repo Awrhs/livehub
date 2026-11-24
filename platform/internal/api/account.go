@@ -82,6 +82,7 @@ func (s *Server) handleSite(w http.ResponseWriter, r *http.Request) {
 		"version":           s.Version,
 		"ingest":            s.ingest(r),
 		"media_enabled":     s.Media != nil,
+		"mail_enabled":      s.Mailer != nil,
 	})
 }
 
@@ -92,6 +93,7 @@ type credentials struct {
 	Password    string `json:"password"`
 	DisplayName string `json:"display_name"`
 	Invite      string `json:"invite"`
+	Email       string `json:"email"`
 }
 
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
@@ -125,6 +127,17 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	if err := auth.ValidateDisplayName(c.DisplayName); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_display_name", err.Error())
 		return
+	}
+	email := ""
+	if strings.TrimSpace(c.Email) != "" {
+		if email = normalizeEmail(c.Email); email == "" {
+			writeError(w, http.StatusBadRequest, "invalid_email", "邮箱格式不正确")
+			return
+		}
+		if other, err := s.Store.UserByEmail(ctx, email); err == nil && other != nil {
+			writeError(w, http.StatusConflict, "email_taken", "该邮箱已被其他账号使用")
+			return
+		}
 	}
 	n, err := s.Store.CountUsers(ctx)
 	if err != nil {
@@ -171,6 +184,12 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	if u.Role == store.RoleAdmin {
 		s.Store.Audit(ctx, u.ID, "site.setup", u.Username, "首个用户成为管理员")
+	}
+	if email != "" {
+		if err := s.Store.SetEmail(ctx, u.ID, email); err == nil {
+			u.Email = email
+			_ = s.sendVerification(r, u, email)
+		}
 	}
 	s.startSession(w, r, u, http.StatusCreated)
 }
