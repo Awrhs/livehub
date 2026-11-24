@@ -11,6 +11,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <functional>
@@ -43,6 +44,11 @@ struct LoopConn {
             lp.loop();
         });
         fut.wait();
+    }
+
+    // 断言失败抛异常时也要结束 loop 线程（否则 std::thread 析构直接 terminate）
+    ~LoopConn() {
+        if (th.joinable()) stop();
     }
 
     void stop() {
@@ -89,7 +95,8 @@ std::string readExactly(int fd, size_t want, int timeoutMs) {
     while (out.size() < want && std::chrono::steady_clock::now() < deadline) {
         pollfd p{fd, POLLIN, 0};
         if (::poll(&p, 1, 100) <= 0) continue;
-        ssize_t n = ::read(fd, buf, sizeof(buf));
+        size_t room = std::min(sizeof(buf), want - out.size());  // 恰好读 want 字节
+        ssize_t n = ::read(fd, buf, room);
         if (n <= 0) break;
         out.append(buf, static_cast<size_t>(n));
     }

@@ -33,6 +33,16 @@ public:
         uint32_t senderSsrc = 0;
         uint32_t mediaSsrc = 0;
         std::vector<uint16_t> nackPids;
+        // RR / SR 的接收报告块：被报告的 SSRC 与丢包率（fraction lost，0-255）
+        struct ReportBlock {
+            uint32_t ssrc = 0;
+            uint8_t fractionLost = 0;
+        };
+        std::vector<ReportBlock> reports;
+        // REMB（draft-alvestrand-rmcat-remb）：接收端带宽估计
+        bool isRemb = false;
+        uint64_t rembBps = 0;
+        std::vector<uint32_t> rembSsrcs;
     };
     static bool parse(const uint8_t* data, size_t len, Feedback& fb);
 };

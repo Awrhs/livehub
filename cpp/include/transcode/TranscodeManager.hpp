@@ -75,7 +75,7 @@ struct TranscodeStats {
  * - 状态机 kPending→kRunning→kCompleted/kFailed；任意时刻可 kCancelled。
  * - 终态任务归档保留（TTL 清理 + 数量上限），供 API 查询与统计。
  * - CPU 高水位保护（读 /proc/stat 计算整体使用率，SystemStats）。
- * - 支持两种后端：内建 libav（Transcoder）或外部 ffmpeg（ProcessManager）。
+ * - 后端：外部 ffmpeg 进程（ProcessManager），故障隔离；进程内 libav 不用于转码（见 runTask 注释）。
  */
 class TranscodeManager : NonCopyable {
 public:

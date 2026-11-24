@@ -11,6 +11,14 @@
 namespace streaming {
 
 namespace {
+int64_t steadyMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+}  // namespace
+
+namespace {
 uint32_t randomSsrc() {
     static thread_local std::mt19937 rng(
         std::random_device{}());
@@ -143,6 +151,13 @@ void WebRtcTransport::cacheParameterSets(const std::vector<uint8_t>& seq) {
 
 void WebRtcTransport::stop() {
     if (!started_.exchange(false)) return;
+    if (congestion_.episodes() > 0)
+        LOG_INFO("WebRtcTransport: ssrc=%u 检测到拥塞 %llu 次，期间只发关键帧，丢弃 %llu 个非关键帧"
+                 "（源 %llu kbps，观众 REMB %llu kbps）",
+                 ssrc_, static_cast<unsigned long long>(congestion_.episodes()),
+                 static_cast<unsigned long long>(congestionDropped_.load()),
+                 static_cast<unsigned long long>(congestion_.sourceBps() / 1000),
+                 static_cast<unsigned long long>(congestion_.lastRembBps() / 1000));
     if (nackRequested_.load() > 0)
         LOG_INFO("WebRtcTransport: ssrc=%u NACK 请求 %llu 包，重传 %llu 包", ssrc_,
                  static_cast<unsigned long long>(nackRequested_.load()),
@@ -201,7 +216,13 @@ void WebRtcTransport::onRtcp(const uint8_t* data, size_t len) {
         size_t plen = ((size_t(data[off + 2]) << 8) | data[off + 3]) * 4 + 4;
         if (off + plen > len) break;
         Rtcp::Feedback fb;
-        if (Rtcp::parse(data + off, plen, fb) && fb.isNack && fb.mediaSsrc == ssrc_) {
+        bool parsed = Rtcp::parse(data + off, plen, fb);
+        if (parsed && !fb.reports.empty()) {
+            for (const auto& rb : fb.reports)
+                if (rb.ssrc == ssrc_) congestion_.onReceiverReport(rb.fractionLost, steadyMs());
+        }
+        if (parsed && fb.isRemb) congestion_.onRemb(fb.rembBps, steadyMs());
+        if (parsed && fb.isNack && fb.mediaSsrc == ssrc_) {
             for (uint16_t pid : fb.nackPids) {
                 nackRequested_.fetch_add(1);
                 std::vector<uint8_t> pkt;
@@ -242,6 +263,20 @@ void WebRtcTransport::onVideoPacket(const MediaPacket& pkt) {
         return;
     }
     if (avcType != 1) return;
+    congestion_.onSourceBytes(pkt.data.size(), steadyMs());
+    // 拥塞：只发关键帧（临时降帧率）；解除后须等下一个关键帧再恢复（中间的 P 帧缺参考）
+    if (sentKeyframe_ && !pkt.isKeyframe) {
+        if (congestion_.congested(steadyMs())) {
+            waitKeyframe_ = true;
+            congestionDropped_.fetch_add(1);
+            return;
+        }
+        if (waitKeyframe_) {
+            congestionDropped_.fetch_add(1);
+            return;
+        }
+    }
+    if (pkt.isKeyframe) waitKeyframe_ = false;
     // 首个关键帧之前的帧无法解码：丢弃
     if (!sentKeyframe_) {
         if (!pkt.isKeyframe || paramSets_.empty()) return;

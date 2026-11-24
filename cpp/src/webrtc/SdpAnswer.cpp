@@ -182,6 +182,7 @@ SdpAnswerResult buildSdpAnswer(const std::string& offer, const SdpAnswerParams& 
         if (!inactive[i] && s.media == "video") {
             o << "a=rtcp-fb:" << pt << " nack\r\n";
             o << "a=rtcp-fb:" << pt << " nack pli\r\n";
+            o << "a=rtcp-fb:" << pt << " goog-remb\r\n";  // 请观众回报带宽估计（拥塞时降帧）
         }
         if (p.sendVideo && !inactive[i]) {
             const bool audio = s.media == "audio";

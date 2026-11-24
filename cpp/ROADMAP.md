@@ -72,11 +72,11 @@
       源码内置 JWT 密钥。现管理员签发绑定 stream/scope/ttl 的 token，RTMP/HTTP-FLV/HLS/WS-FLV 统一校验
 - [x] 连接数上限（全局 / 单 IP）：MAX_CONNECTIONS / MAX_CONNECTIONS_PER_IP
 - [x] RTMP Acknowledgement（窗口确认）发送，兼容严格客户端
-- [ ] 时间戳跳变/回退处理（分片 discontinuity、FLV 时间戳单调化）
-- [ ] HLS 响应头（`Cache-Control`、CORS）、m3u8 与分片的 MIME 类型
+- [x] 时间戳跳变/回退处理：推流时间戳回退 >2s 或前跳 >10s 时平移为连续时间线，所有输出（FLV/HLS/WebRTC/录像）单调；单元测试覆盖
+- [x] HLS 响应头：m3u8 `application/vnd.apple.mpegurl`、分片 `video/MP2T`、CORS、分片 `Cache-Control: public, max-age=60`
 - [x] Dockerfile 在 CI 中构建并做冒烟测试（修复默认 CMD 引用不存在的配置、工作目录不可写）
-- [x] GCC 编译告警清零并开启 `-Werror`（clang 仍有 ~20 条未使用字段告警待清理）
-- [ ] 文档：配置项说明与实际代码对齐；部署指南
+- [x] GCC 编译告警清零并开启 `-Werror`；clang Release 同样开启 `-Werror`，告警为 0
+- [x] 文档：`streaming.conf.example` 覆盖全部 68 个配置项，CI（`tools/check_config_docs.sh`）检查代码与文档一致；部署指南见 `docs/DEPLOY.md`
 
 ### 第二轮修复的致命问题（节选）
 
@@ -93,17 +93,17 @@
 ### P1 —— 其它已知问题
 
 - [x] SIGHUP 热加载：只原子替换 vhost 表（顶层设置需重启），消除数据竞争；E2E 验证
-- [x] 日志刷盘：WARN 以上立即刷新，其余至多 200ms（原实现全缓冲，崩溃时丢失最后日志）
+- [x] 日志刷盘：WARN 以上立即刷新，其余至多 200ms；服务空闲时由后台线程刷新（原实现最后几行可能一直滞留缓冲区）
 - [x] webhook：RTMP 推/拉流鉴权异步化；修复同步等待超时后访问已销毁栈对象（UAF）；worker 扩至 4 个
-- [ ] webhook：HTTP-FLV / WS-FLV / SRT 拉流的 on_play 仍为同步调用（需 HttpServer 支持延迟响应）
-- [ ] AsyncFileWriter 队列满时丢弃写入会损坏 HLS 分片，可改为丢弃整个分片
-- [ ] clang `-Wunused-private-field` 告警清理
+- [x] webhook：HTTP-FLV / WS-FLV / SRT 拉流的 on_play 异步化（HttpServer 支持延迟响应）；E2E 验证慢回调不阻塞 IO 线程
+- [x] AsyncFileWriter 队列满时丢弃整个分片（不发布、打 discontinuity），录像保留已写部分；单元测试覆盖
+- [x] clang `-Wunused-private-field` 告警清理（clang Release `-Werror` 通过）
 
 ### P1 —— 性能
 
-- [ ] TS 分片 sendfile 零拷贝（需 TcpConnection 支持带 EPOLLOUT 续传的文件发送）
-- [ ] 每包分发的内存拷贝（`MediaPacket::data` 向每个观众各拷贝一次）改为共享缓冲
-- [ ] 基准：单机 N 路推流 × M 观众的 CPU/内存曲线（CI 中跑小规模）
+- [x] TS 分片 sendfile 零拷贝：TcpConnection::sendFile 写满时等 EPOLLOUT 续传、与前后数据保序、断开时释放文件；内存缓存命中的分片共享发送；单元测试覆盖
+- [x] 分发共享缓冲：每个包分配全局序号，HTTP-FLV / WS-FLV 每包只序列化一次、所有观众共享（跨线程投递只传引用）；跨线程发送去掉 lambda 捕获的多余拷贝。RTMP 播放因每连接分块参数不同仍逐连接打包
+- [x] 基准：`tests/e2e/bench_fanout.sh`（4 路推流 × 0/40/100/200 个 HTTP-FLV 观众），每次 CI 输出 CPU/RSS/吞吐表格到作业摘要并断言观众码率
 
 ### P2 —— 扩展协议与功能（核心稳定后）
 
@@ -117,17 +117,20 @@
       no shared cipher、多指纹取错算法 → SRTP 代码从未编译过（API 全错）、密钥方向/布局错误 →
       RTP/RTCP 复用判断把动态 PT 当 RTCP → NALU 未组帧、序列头未保存 → WHEP 提前订阅、
       缺 SPS/PPS → PLI 缓冲区不足从未发出
-- [ ] WebRTC 音频：源为 AAC、WebRTC 需 Opus，需转码（当前音频 m 行以 inactive 接受）
-- [ ] WebRTC：NACK 重传、TWCC/REMB 拥塞控制、DELETE 结束会话（WHIP/WHEP 规范）
+- [x] WebRTC 音频：AAC → Opus 转码（每观众独立），E2E 与 Chrome/Firefox 验证有音频轨
+- [x] WebRTC：NACK 重传（5% 丢包 E2E 验证）、DELETE 结束会话（WHIP/WHEP 规范）
+- [x] WebRTC 拥塞控制：解析观众 RR 丢包率与 REMB 带宽估计，拥塞时只发关键帧、解除后从关键帧恢复。
+      服务器只转发主播码流、无法调节编码码率，接收端估计（REMB/RR）已足够驱动降帧，故不实现发送端
+      带宽估计（TWCC）；弱网观众应使用 HLS 多清晰度
 - [x] RTSP 拉流 E2E
 - [x] DVR / fMP4 录制产物可播放（修复 trun 标志位、非关键帧起录、音视频基准不一致）
 - [x] 转码 / ABR：修复变体流名重复追加档位后缀、进程内 libav 输出从未接通却报“完成”
       （统一走外部 ffmpeg）、路由首个匹配导致 master.m3u8 被遮蔽（改为特异性匹配）
-- [ ] 进程内 libav 转码接入分发链（减少进程开销）
+- [x] 转码后端定为外部 ffmpeg 进程（设计决定：故障隔离、可单独 kill/限时/统计，进程开销相对编码可忽略），删除从未接通的进程内 libav 分支
 - [x] 源站-边缘集群 E2E（两个实例）：修复边缘首次回源即 abort（bad_weak_ptr）、FlvDemuxer
       在二进制流中二次“跳过 HTTP 头”导致无法解析、404 时无间隔重连风暴、RTMP/HLS 不回源、
       SO_REUSEPORT 默认开启导致端口冲突静默分流、bind 失败被忽略
-- [ ] 边缘回源：HLS 回源流的释放（当前回源后持续拉取，直到源站断流）
+- [x] 边缘回源释放：无订阅者且无 HLS 请求超过 `EDGE_IDLE_SEC`（默认 30s）停止回源；E2E 验证
 
 ## 开发流程
 

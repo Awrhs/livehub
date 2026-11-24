@@ -2,6 +2,7 @@
 
 #include "rtmp/MediaStream.hpp"
 #include "webrtc/AacToOpus.hpp"
+#include "webrtc/CongestionMonitor.hpp"
 #include "webrtc/DtlsTransport.hpp"
 #include "webrtc/IceAgent.hpp"
 #include "webrtc/RtpPacket.hpp"
@@ -102,6 +103,10 @@ private:
     std::mutex historyMu_;
     std::mutex sendMu_;  // SRTP 加密上下文非线程安全：发布者线程发送与 UDP 线程重传互斥
     std::atomic<uint64_t> nackRequested_{0};
+    // 拥塞控制：观众 RR 丢包率高或 REMB 低于源码率时只发关键帧，解除后从关键帧恢复
+    CongestionMonitor congestion_;
+    bool waitKeyframe_ = false;  // 发布者线程
+    std::atomic<uint64_t> congestionDropped_{0};
     std::atomic<uint64_t> retransmitted_{0};
     void rememberVideo(const uint8_t* data, size_t len);
     void onRtcp(const uint8_t* data, size_t len);

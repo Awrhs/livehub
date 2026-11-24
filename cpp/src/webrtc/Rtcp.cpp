@@ -37,6 +37,20 @@ bool Rtcp::parse(const uint8_t* data, size_t len, Feedback& fb) {
     if (version != 2) return false;
     uint8_t pt = data[1];
     // uint16_t lengthWords = (uint16_t(data[2]) << 8) | data[3];
+    auto rd32 = [data](size_t off) {
+        return (uint32_t(data[off]) << 24) | (uint32_t(data[off + 1]) << 16) |
+               (uint32_t(data[off + 2]) << 8) | uint32_t(data[off + 3]);
+    };
+    if (pt == kRtcpRR || pt == kRtcpSR) {
+        // RR：头 8 字节后为报告块；SR：另有 20 字节发送者信息。每块 24 字节
+        size_t off = pt == kRtcpSR ? 28 : 8;
+        uint8_t rc = data[0] & 0x1F;
+        fb.senderSsrc = rd32(4);
+        for (uint8_t i = 0; i < rc && off + 24 <= len; ++i, off += 24) {
+            fb.reports.push_back({rd32(off), data[off + 4]});
+        }
+        return !fb.reports.empty();
+    }
     if (len < 12) return false;
     fb.senderSsrc = (uint32_t(data[4]) << 24) | (uint32_t(data[5]) << 16) |
                     (uint32_t(data[6]) << 8) | uint32_t(data[7]);
@@ -53,6 +67,18 @@ bool Rtcp::parse(const uint8_t* data, size_t len, Feedback& fb) {
         if (fmt == 4) {
             // FIR（关键帧请求），按 PLI 处理
             fb.isPli = true;
+            return true;
+        }
+        if (fmt == 15 && len >= 20 && data[12] == 'R' && data[13] == 'E' && data[14] == 'M' &&
+            data[15] == 'B') {
+            // REMB：Num SSRC(8) | BR Exp(6) | BR Mantissa(18) | SSRC...
+            uint8_t num = data[16];
+            uint8_t exp = data[17] >> 2;
+            uint32_t mant = (uint32_t(data[17] & 0x03) << 16) | (uint32_t(data[18]) << 8) | data[19];
+            fb.isRemb = true;
+            fb.rembBps = exp >= 46 ? UINT64_MAX : (uint64_t(mant) << exp);
+            for (uint8_t i = 0; i < num && 20 + 4 * (i + 1) <= len; ++i)
+                fb.rembSsrcs.push_back(rd32(20 + 4 * i));
             return true;
         }
     } else if (pt == kRtcpPF) {

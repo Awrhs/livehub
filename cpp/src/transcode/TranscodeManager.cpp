@@ -272,30 +272,14 @@ void TranscodeManager::schedulerLoop() {
     }
 }
 
-namespace {
-constexpr bool kLibavOutputWired = false;
-}  // namespace
-
 bool TranscodeManager::runTask(const std::shared_ptr<TranscodeTask>& task) {
     LOG_INFO("TranscodeManager: running task %s", task->id.c_str());
 
-    // 进程内 libav 转码的输出从未接入分发链（输出回调为空），且无 libav 构建时直接“完成”。
-    // 在接通之前统一使用外部 ffmpeg 进程。
-    if (task->useLibav && kLibavOutputWired) {
-        task->transcoder = std::make_shared<Transcoder>(
-            task->inputUrl, task->profiles);
-        task->transcoder->setOutputCallback(
-            [](const EncodedPacket&) {
-                // 输出送入 HlsSource / MediaStream（在 Stage 7 装配时绑定）
-            });
-        task->transcoder->start();
-        // 同步等待完成
-        while (task->transcoder->isRunning() && running_.load()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-        task->transcoder->stop();
-        return true;
-    }
+    // 设计决定：转码统一由外部 ffmpeg 进程完成（不在进程内用 libav 转码）。
+    // - 故障隔离：编解码库崩溃/内存泄漏只影响该转码进程，不会拖垮正在分发的媒体服务器；
+    // - 可控：每个任务可单独超时、kill、统计 CPU/内存（ProcessManager）；
+    // - 开销：每个档位一个进程（数 MB），相对编码本身的 CPU 开销可忽略。
+    // （useLibav 参数为兼容保留，不再改变行为。原进程内分支的输出从未接入分发链。）
     // fork 外部 ffmpeg
     std::vector<std::string> argv;
     buildFfmpegArgs(*task, argv);

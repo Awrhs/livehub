@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 using namespace streaming;
 
@@ -40,3 +41,52 @@ TEST(stun_binding_response_integrity_roundtrip) {
     ASSERT_TRUE(Stun::checkFingerprint(resp.data(), resp.size()));
 }
 #endif
+
+// ---- RTCP 接收报告 / REMB 解析与拥塞判断 ----
+#include "webrtc/CongestionMonitor.hpp"
+#include "webrtc/Rtcp.hpp"
+
+TEST(rtcp_parse_receiver_report_blocks) {
+    // RR，RC=1：sender ssrc=0x11111111，报告块 ssrc=0x22222222，fraction lost=64（25%）
+    std::vector<uint8_t> rr = {0x81, 201, 0x00, 0x07, 0x11, 0x11, 0x11, 0x11,
+                               0x22, 0x22, 0x22, 0x22, 64, 0, 0, 10,
+                               0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    streaming::Rtcp::Feedback fb;
+    ASSERT_TRUE(streaming::Rtcp::parse(rr.data(), rr.size(), fb));
+    ASSERT_EQ(fb.reports.size(), static_cast<size_t>(1));
+    ASSERT_EQ(fb.reports[0].ssrc, 0x22222222u);
+    ASSERT_EQ(static_cast<int>(fb.reports[0].fractionLost), 64);
+}
+
+TEST(rtcp_parse_remb) {
+    // PSFB fmt=15，"REMB"，1 个 SSRC，exp=2 mantissa=250000 → 1,000,000 bps
+    uint32_t mant = 250000;
+    std::vector<uint8_t> p = {0x8F, 206, 0x00, 0x05, 0, 0, 0, 1, 0, 0, 0, 0, 'R', 'E', 'M', 'B', 1,
+                              static_cast<uint8_t>((2 << 2) | (mant >> 16)),
+                              static_cast<uint8_t>((mant >> 8) & 0xFF), static_cast<uint8_t>(mant & 0xFF),
+                              0xAA, 0xBB, 0xCC, 0xDD};
+    streaming::Rtcp::Feedback fb;
+    ASSERT_TRUE(streaming::Rtcp::parse(p.data(), p.size(), fb));
+    ASSERT_TRUE(fb.isRemb);
+    ASSERT_EQ(fb.rembBps, static_cast<uint64_t>(1000000));
+    ASSERT_EQ(fb.rembSsrcs.size(), static_cast<size_t>(1));
+    ASSERT_EQ(fb.rembSsrcs[0], 0xAABBCCDDu);
+}
+
+TEST(congestion_monitor_loss_and_remb) {
+    streaming::CongestionMonitor m;
+    // 源约 2 Mbps：每 100ms 25000 字节
+    for (int t = 0; t <= 3000; t += 100) m.onSourceBytes(25000, t);
+    ASSERT_TRUE(m.sourceBps() > 1500000 && m.sourceBps() < 2500000);
+    ASSERT_FALSE(m.congested(3000));
+    m.onReceiverReport(5, 3000);  // 2% 丢包：正常
+    ASSERT_FALSE(m.congested(3001));
+    m.onReceiverReport(64, 3100);  // 25% 丢包：拥塞
+    ASSERT_TRUE(m.congested(3200));
+    ASSERT_FALSE(m.congested(3100 + streaming::CongestionMonitor::kHoldMs));  // 无新信号则解除
+    m.onRemb(3000000, 10000);  // 带宽充足
+    ASSERT_FALSE(m.congested(10001));
+    m.onRemb(1000000, 11000);  // 带宽低于源码率 80%
+    ASSERT_TRUE(m.congested(11001));
+    ASSERT_EQ(m.episodes(), static_cast<uint64_t>(2));
+}
