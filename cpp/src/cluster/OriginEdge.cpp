@@ -27,6 +27,8 @@ struct OriginEdge::PullSession
     TimerId releaseTimer;  // 空 TimerId 表示无待释放
     static constexpr double kReleaseDelaySec = 5.0;
 
+    std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
+
     PullSession(EventLoop* l, std::string k, std::string h,
                 uint16_t p, std::string a)
         : key(std::move(k)), host(std::move(h)), port(p), app(std::move(a)),
@@ -262,6 +264,42 @@ void OriginEdge::release(const std::string& key) {
             LOG_INFO("OriginEdge: stop pull %s", key.c_str());
         });
     });
+}
+
+std::vector<std::string> OriginEdge::keys() const {
+    std::lock_guard<std::mutex> lk(mu_);
+    std::vector<std::string> out;
+    for (const auto& kv : sessions_) out.push_back(kv.first);
+    return out;
+}
+
+std::shared_ptr<MediaStream> OriginEdge::find(const std::string& key) const {
+    std::lock_guard<std::mutex> lk(mu_);
+    auto it = sessions_.find(key);
+    return it == sessions_.end() ? nullptr : it->second->stream;
+}
+
+int64_t OriginEdge::ageMs(const std::string& key) const {
+    std::lock_guard<std::mutex> lk(mu_);
+    auto it = sessions_.find(key);
+    if (it == sessions_.end()) return 0;
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now() - it->second->started)
+        .count();
+}
+
+void OriginEdge::stop(const std::string& key) {
+    std::shared_ptr<PullSession> sess;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        auto it = sessions_.find(key);
+        if (it == sessions_.end()) return;
+        sess = it->second;
+        sessions_.erase(it);
+    }
+    LOG_INFO("OriginEdge: stop pull %s (no viewers)", key.c_str());
+    // 在 loop 线程析构（断开回源连接）
+    loop_->runInLoop([sess] {});
 }
 
 size_t OriginEdge::activePulls() const {

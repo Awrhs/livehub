@@ -134,10 +134,30 @@ if $PY -c "import aiortc" 2>/dev/null; then
     af=$(echo "$W" | sed -n 's/.*audio_frames=\([0-9]*\).*/\1/p')
     # AAC→Opus 转码：6 秒内应收到上百个 20ms 音频帧
     [ "${af:-0}" -ge 100 ] && pass "WHEP 音频（Opus，$af 帧）" || fail "WHEP 未收到音频（$W）"
+    echo "$W" | grep -q 'deleted=200' && pass "WHEP 会话可由客户端 DELETE 结束" || fail "WHEP DELETE 失败（$W）"
+    grep -q 'WHEP 会话 .* 已由客户端结束' "$LOG" && pass "服务器已释放 WHEP 会话" || fail "服务器未记录 WHEP 会话结束"
     wait "$WHIP_PID"
     W=$(cat "$WORK/whip.out")
     echo "$W" | grep -q 'state=connected' && pass "WHIP 会话保持连接（$W）" \
         || { fail "WHIP 会话异常（$W）"; grep -iE 'check|stun|integrity|error|fail|dtls' "$WORK/whip.err" | head -15 | cut -c1-220 | sed 's/^/    whip.err: /'; }
+    echo "$W" | grep -q 'deleted=200' && pass "WHIP 推流可由客户端 DELETE 结束" || fail "WHIP DELETE 失败（$W）"
+    sleep 1
+    code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $ADM" "http://127.0.0.1:$HTTP/api/streams/whipin")
+    [ "$code" = "404" ] && pass "WHIP 结束后流已注销（流名可再次使用）" || fail "WHIP 结束后流仍存在（$code）"
+    # NACK：在环回接口上制造 5% 丢包，WHEP 观看应触发重传且仍能持续解码
+    if sudo -n tc qdisc add dev lo root netem loss 5% 2>/dev/null; then
+        $PY "$(dirname "$0")/webrtc_client.py" whep "http://127.0.0.1:$HTTP/whep/avc" 10 >"$WORK/whep_loss.out" 2>"$WORK/whep_loss.err"
+        sudo -n tc qdisc del dev lo root 2>/dev/null
+        W=$(cat "$WORK/whep_loss.out")
+        vf=$(echo "$W" | grep -oE 'video_frames=[0-9]+' | cut -d= -f2)
+        [ "${vf:-0}" -ge 120 ] && pass "5% 丢包下 WHEP 仍持续解码（$W）" || fail "5% 丢包下 WHEP 解码异常（$W）"
+        sleep 1
+        r=$(grep -o 'NACK 请求 [0-9]* 包，重传 [0-9]* 包' "$LOG" | tail -1)
+        retx=$(echo "$r" | sed -n 's/.*重传 \([0-9]*\) 包/\1/p')
+        [ "${retx:-0}" -gt 0 ] && pass "NACK 重传生效（$r）" || fail "丢包时未发生 NACK 重传（${r:-无记录}）"
+    else
+        echo "  [INFO] 无法设置 netem（需要 sudo tc），跳过丢包测试"
+    fi
 else
     echo "  [INFO] 未安装 aiortc，跳过"
 fi
@@ -158,6 +178,11 @@ res=$(timeout 20 ffprobe -v error -select_streams v:0 -show_entries stream=heigh
 [ "$res" = 480 ] && pass "转码输出分辨率 480p" || fail "转码输出分辨率为 ${res:-未知}"
 
 echo "== 源站-边缘集群（边缘按需回源）"
+# 独立的源流（时长足够覆盖回源、空闲回收与再次回源）
+ffmpeg -hide_banner -loglevel error -re -f lavfi -i "testsrc2=size=640x360:rate=25" \
+    -f lavfi -i "sine=frequency=440:sample_rate=44100" -c:v libx264 -preset ultrafast -g 50 -pix_fmt yuv420p \
+    -c:a aac -t 150 -f flv "rtmp://127.0.0.1:$RTMP/live/edgesrc" >"$WORK/push_edgesrc.log" 2>&1 &
+sleep 4
 EHTTP=58080; ERTMP=51935
 cat >"$WORK/edge.conf" <<EOF2
 HTTP_PORT=$EHTTP
@@ -169,22 +194,31 @@ HLS_OUTPUT_DIR=$WORK/edge_hls
 JWT_SECRET=edge-secret-edge-secret-edge-secret
 ENABLE_RATE_LIMIT=false
 ORIGIN_URL=http://127.0.0.1:$HTTP
+EDGE_IDLE_SEC=8
 [vhost:__default__]
 EOF2
 ( mkdir -p "$WORK/edge" && cd "$WORK/edge" && exec "$BIN" "$WORK/edge.conf" ) >"$WORK/edge.log" 2>&1 &
 EDGE_PID=$!
 for _ in $(seq 1 50); do curl -sf --max-time 2 "http://127.0.0.1:$EHTTP/api/health" >/dev/null && break; sleep 0.2; done
-probe edge_flv "http://127.0.0.1:$EHTTP/live/avc.flv" h264 3 50
-probe edge_rtmp "rtmp://127.0.0.1:$ERTMP/live/avc" h264 3 50
+probe edge_flv "http://127.0.0.1:$EHTTP/live/edgesrc.flv" h264 3 50
+probe edge_rtmp "rtmp://127.0.0.1:$ERTMP/live/edgesrc" h264 3 50
 # 边缘 HLS：首个请求触发回源（返回 404），首个分片就绪后可播放（播放器会重试）
-curl -s -o /dev/null --max-time 3 "http://127.0.0.1:$EHTTP/live/avc.m3u8"
+curl -s -o /dev/null --max-time 3 "http://127.0.0.1:$EHTTP/live/edgesrc.m3u8"
 sleep 7
-probe edge_hls "http://127.0.0.1:$EHTTP/live/avc.m3u8" h264 3 50
+probe edge_hls "http://127.0.0.1:$EHTTP/live/edgesrc.m3u8" h264 3 50
 curl -s -o /dev/null --max-time 3 "http://127.0.0.1:$EHTTP/live/nosuch.flv"
 sleep 2
 storms=$(grep -c 'edge-nosuch.*reconnect' "$WORK/edge.log")
 [ "$storms" -le 3 ] && pass "回源不存在的流不会形成重连风暴（重连 ${storms} 次）" \
     || fail "回源不存在的流形成重连风暴（2 秒内重连 ${storms} 次）"
+# 观众全部离开后边缘应停止回源（EDGE_IDLE_SEC=8），之后再有观众时重新回源
+released=0
+for _ in $(seq 1 30); do
+    grep -q '停止回源' "$WORK/edge.log" && { released=1; break; }
+    sleep 1
+done
+[ $released = 1 ] && pass "观众离开后边缘停止回源" || fail "观众离开 30 秒后边缘仍在回源"
+probe edge_flv_again "http://127.0.0.1:$EHTTP/live/edgesrc.flv" h264 3 50
 kill -0 "$EDGE_PID" 2>/dev/null && pass "边缘进程存活" || fail "边缘进程已退出"
 grep -E 'WARN|ERROR' "$WORK/edge.log" | sed -E 's/^[0-9-]+ [0-9:.]+ //' | sort | uniq -c | sort -rn | head -5 | sed 's/^/    edge: /'
 kill "$EDGE_PID" 2>/dev/null

@@ -662,6 +662,11 @@ int main(int argc, char* argv[]) {
             &baseLoop, static_cast<uint16_t>(cfg.webrtcPortMin()),
             static_cast<uint16_t>(std::max(1, cfg.webrtcPortMax() - cfg.webrtcPortMin() + 1)),
             static_cast<uint16_t>(cfg.webrtcUdpPort()));
+    // WHIP 推流结束（客户端 DELETE 或断开超时）：注销流，触发 on_unpublish 等下播流程
+    webrtc->setIngestEndHandler(
+        [&](const std::string& key, const std::shared_ptr<MediaStream>& ms) {
+            rtmpServer->removeStream(key, ms);
+        });
     // 每 5 秒回收空闲的 WHEP 会话（30 秒无任何对端数据）
     baseLoop.runEvery(5.0, [webrtc] { webrtc->sweepIdle(30000); });
 
@@ -1233,6 +1238,40 @@ int main(int argc, char* argv[]) {
         });
 
     // ---- 定时任务：HLS 过期回收 / 限流桶清理 / 黑名单清理 / 磁盘水位 ----
+    // 边缘：回源流无观众时停止回源（原实现回源后持续拉取直到源站断流，浪费源站带宽）。
+    // 观众 = 回源流的订阅者（HTTP-FLV / WS-FLV / RTMP / WebRTC，不含本地 HLS 桥接）+ 近期 HLS 请求
+    if (edge) {
+        baseLoop.runEvery(5.0, [&] {
+            const int64_t idleMs = static_cast<int64_t>(cfg.edgeIdleSec()) * 1000;
+            const int64_t now = Timestamp::now().microSecondsSinceEpoch() / 1000;
+            for (const auto& key : edge->keys()) {
+                auto ms = edge->find(key);
+                if (!ms || edge->ageMs(key) < idleMs) continue;
+                std::shared_ptr<RtmpToHls> bridge;
+                {
+                    std::lock_guard<std::mutex> lk(bridgesMu);
+                    auto it = bridges.find(key);
+                    if (it != bridges.end()) bridge = it->second;
+                }
+                size_t subs = ms->subscriberCount();
+                if (bridge && subs > 0) --subs;  // HLS 桥接自身的订阅
+                bool hlsIdle = true;
+                if (auto src = hlsManager->find(key)) {
+                    int64_t last = std::max(src->lastAccessMs(), static_cast<int64_t>(0));
+                    hlsIdle = now - last > idleMs;
+                }
+                if (subs > 0 || !hlsIdle) continue;
+                LOG_INFO("边缘：%s 已无观众超过 %d 秒，停止回源", key.c_str(), cfg.edgeIdleSec());
+                if (bridge) {
+                    std::lock_guard<std::mutex> lk(bridgesMu);
+                    bridges.erase(key);
+                }
+                hlsManager->endStream(key);
+                edge->stop(key);
+            }
+        });
+    }
+
     baseLoop.runEvery(10.0, [&] {
         int64_t nowMs = Timestamp::now().microSecondsSinceEpoch() / 1000;
         hlsManager->sweep(nowMs, 60);

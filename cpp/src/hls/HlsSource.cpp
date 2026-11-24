@@ -12,6 +12,8 @@ static int64_t nowMs() {
         .count();
 }
 
+void HlsSource::touchAccess() { lastAccessMs_.store(nowMs()); }
+
 HlsSource::HlsSource(std::string streamKey, std::string outputDir,
                      int targetDuration, int windowSize)
     : streamKey_(std::move(streamKey)),

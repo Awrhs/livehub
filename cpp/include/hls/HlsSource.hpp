@@ -55,6 +55,9 @@ public:
 
     /// 活跃时间戳，用于过期回收
     int64_t lastActiveMs() const { return lastActiveMs_.load(); }
+    /// 播放端最近一次请求播放列表/分片的时间（边缘节点据此判断是否还有 HLS 观众）
+    void touchAccess();
+    int64_t lastAccessMs() const { return lastAccessMs_.load(); }
 
 private:
     std::string streamKey_;
@@ -65,6 +68,7 @@ private:
     int64_t segmentStartDts_ = -1;
     int64_t lastDts_ = -1;
     std::atomic<int64_t> lastActiveMs_{0};
+    std::atomic<int64_t> lastAccessMs_{0};
 };
 
 }  // namespace streaming

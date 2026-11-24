@@ -41,7 +41,8 @@ void WhepHandler::registerRoutes(HttpServer& server) {
                     auto probe = buildSdpAnswer(req.body(), p);
                     if (!probe.ok) return fail(HttpStatusCode::k400BadRequest, probe.error);
 
-                    auto transport = webrtc_->createSubscriber(key, stream);
+                    std::string sessionId;
+                    auto transport = webrtc_->createSubscriber(key, stream, &sessionId);
                     if (!transport) return fail(HttpStatusCode::k503ServiceUnavailable, "no ports");
                     // 对端 DTLS 证书指纹（按 sha-256 选取；offer 可能同时含多种算法）
                     transport->setRemoteFingerprint(sdpFingerprint(req.body(), "sha-256"));
@@ -59,9 +60,19 @@ void WhepHandler::registerRoutes(HttpServer& server) {
 
                     resp.setStatusCode(HttpStatusCode::k201Created);
                     resp.setContentType("application/sdp");
-                    resp.addHeader("Location", "/whep/" + key);
+                    // 会话资源地址：客户端结束观看时 DELETE 该地址（WHEP 规范）
+                    resp.addHeader("Location", "/whep/" + key + "/" + sessionId);
                     resp.setBody(ans.sdp);
                 });
+
+    // 结束会话：DELETE /whep/:stream/:session
+    server.router().add(HttpMethod::DELETE, "/whep/:stream/:session",
+                        [this](const HttpRequest& req, HttpResponse& resp) {
+                            bool ok = webrtc_->removeSession(req.param("session"));
+                            resp.setStatusCode(ok ? HttpStatusCode::k200Ok : HttpStatusCode::k404NotFound);
+                            resp.setContentType("application/json");
+                            resp.setBody(ok ? "{\"ok\":true}" : "{\"error\":\"session not found\"}");
+                        });
 }
 
 }  // namespace streaming

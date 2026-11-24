@@ -33,6 +33,10 @@ public:
     ~WebRtcIngest();
 
     void start();
+    /// 超过 timeoutMs 未收到对端任何数据（浏览器关闭/网络断开）
+    bool idle(int64_t timeoutMs) const {
+        return ice_ && IceAgent::steadyMs() - ice_->lastRecvMs() > timeoutMs;
+    }
     void stop();
 
     const std::string& ufrag() const { return ufrag_; }

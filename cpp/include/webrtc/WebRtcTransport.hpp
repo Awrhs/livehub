@@ -10,6 +10,8 @@
 
 #include <atomic>
 #include <memory>
+#include <mutex>
+#include <vector>
 #include <string>
 
 namespace streaming {
@@ -87,6 +89,22 @@ private:
     std::unique_ptr<IceAgent> ice_;
     std::unique_ptr<DtlsTransport> dtls_;
     std::unique_ptr<SrtpSession> srtpSend_;
+    std::unique_ptr<SrtpSession> srtpRecv_;  // 解密观众发来的 SRTCP（NACK / PLI / RR）
+
+    // NACK 重传（RFC 4585）：保存最近发送的视频 RTP 明文，按观众请求以原序号重发
+    static constexpr size_t kNackHistory = 512;  // 约 2 秒 @ 2.5Mbps
+    struct SentPacket {
+        uint16_t seq = 0;
+        bool valid = false;
+        std::vector<uint8_t> data;
+    };
+    std::vector<SentPacket> history_;
+    std::mutex historyMu_;
+    std::mutex sendMu_;  // SRTP 加密上下文非线程安全：发布者线程发送与 UDP 线程重传互斥
+    std::atomic<uint64_t> nackRequested_{0};
+    std::atomic<uint64_t> retransmitted_{0};
+    void rememberVideo(const uint8_t* data, size_t len);
+    void onRtcp(const uint8_t* data, size_t len);
     std::unique_ptr<H264RtpPacketizer> packetizer_;
 
     std::string ufrag_, pwd_, localFingerprint_, remoteFingerprint_;

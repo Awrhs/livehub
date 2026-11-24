@@ -65,6 +65,9 @@ WebRtcTransport::WebRtcTransport(EventLoop* loop, uint16_t udpPort,
             srtpSend_ = std::make_unique<SrtpSession>();
             if (!srtpSend_->initSend(keys.profile, keys.sendKey, keys.sendSalt))
                 LOG_WARN("WebRtcTransport: SRTP init failed (profile %d)", keys.profile);
+            srtpRecv_ = std::make_unique<SrtpSession>();
+            if (!srtpRecv_->initRecv(keys.profile, keys.recvKey, keys.recvSalt))
+                LOG_WARN("WebRtcTransport: SRTCP 接收上下文初始化失败（NACK 不可用）");
             dtlsReady_ = true;
             LOG_INFO("WebRtcTransport: DTLS-SRTP ready, ssrc=%u", ssrc_);
             subscribeMedia();
@@ -72,7 +75,9 @@ WebRtcTransport::WebRtcTransport(EventLoop* loop, uint16_t udpPort,
 
     packetizer_ = std::make_unique<H264RtpPacketizer>(ssrc_, 1200);
     packetizer_->setPayloadType(96);  // H264 动态 PT
+    history_.resize(kNackHistory);
     packetizer_->setCallback([this](const uint8_t* d, size_t n) {
+        rememberVideo(d, n);
         ++videoPackets_;
         videoOctets_ += static_cast<uint32_t>(n > 12 ? n - 12 : 0);
         sendSrtp(d, n);
@@ -138,6 +143,10 @@ void WebRtcTransport::cacheParameterSets(const std::vector<uint8_t>& seq) {
 
 void WebRtcTransport::stop() {
     if (!started_.exchange(false)) return;
+    if (nackRequested_.load() > 0)
+        LOG_INFO("WebRtcTransport: ssrc=%u NACK 请求 %llu 包，重传 %llu 包", ssrc_,
+                 static_cast<unsigned long long>(nackRequested_.load()),
+                 static_cast<unsigned long long>(retransmitted_.load()));
     if (auto stream = stream_.lock()) {
         if (subId_) stream->unsubscribe(subId_);
         subId_ = 0;
@@ -159,13 +168,61 @@ void WebRtcTransport::onIceData(const uint8_t* data, size_t len,
         dtls_->feed(data, len);
         return;
     }
-    // 已完成 DTLS：这里是 SRTP(SRTCP)，目前服务器下行，仅记录（可扩展 RR/NACK）
-    (void)data;
-    (void)len;
+    if (len == 0) return;
+    // RFC 7983 多路分解：[20,63] DTLS（如对端重传 Finished），[128,191] RTP/RTCP
+    uint8_t b = data[0];
+    if (b >= 20 && b <= 63) {
+        dtls_->feed(data, len);
+        return;
+    }
+    if (b < 128 || b > 191 || len < 8) return;
+    uint8_t pt = data[1];
+    if (pt < 192 || pt > 223) return;  // 只处理 RTCP（RFC 5761：PT 192-223）
+    if (!srtpRecv_) return;
+    std::vector<uint8_t> buf(data, data + len);
+    int n = srtpRecv_->unprotectRtcp(buf.data(), static_cast<int>(buf.size()));
+    if (n > 0) onRtcp(buf.data(), static_cast<size_t>(n));
+}
+
+void WebRtcTransport::rememberVideo(const uint8_t* data, size_t len) {
+    if (len < 12) return;
+    uint16_t seq = static_cast<uint16_t>((uint16_t(data[2]) << 8) | data[3]);
+    std::lock_guard<std::mutex> lk(historyMu_);
+    SentPacket& slot = history_[seq % kNackHistory];
+    slot.seq = seq;
+    slot.valid = true;
+    slot.data.assign(data, data + len);
+}
+
+// 处理（复合）RTCP：对视频 SSRC 的 NACK 以原序号重传
+void WebRtcTransport::onRtcp(const uint8_t* data, size_t len) {
+    size_t off = 0;
+    while (off + 4 <= len) {
+        size_t plen = ((size_t(data[off + 2]) << 8) | data[off + 3]) * 4 + 4;
+        if (off + plen > len) break;
+        Rtcp::Feedback fb;
+        if (Rtcp::parse(data + off, plen, fb) && fb.isNack && fb.mediaSsrc == ssrc_) {
+            for (uint16_t pid : fb.nackPids) {
+                nackRequested_.fetch_add(1);
+                std::vector<uint8_t> pkt;
+                {
+                    std::lock_guard<std::mutex> lk(historyMu_);
+                    const SentPacket& slot = history_[pid % kNackHistory];
+                    if (slot.valid && slot.seq == pid) pkt = slot.data;
+                }
+                if (!pkt.empty()) {
+                    sendSrtp(pkt.data(), pkt.size());
+                    retransmitted_.fetch_add(1);
+                }
+            }
+        }
+        off += plen;
+    }
 }
 
 void WebRtcTransport::sendSrtp(const uint8_t* data, size_t len) {
     if (!dtlsReady_ || !srtpSend_ || !ice_) return;
+    std::lock_guard<std::mutex> lk(sendMu_);
     uint8_t buf[2048];
     if (len + 32 > sizeof(buf)) return;
     std::memcpy(buf, data, len);
@@ -230,6 +287,7 @@ void WebRtcTransport::onAudioPacket(const MediaPacket& pkt) {
 
 void WebRtcTransport::sendRtcp(std::vector<uint8_t> pkt) {
     if (!dtlsReady_ || !srtpSend_ || !ice_) return;
+    std::lock_guard<std::mutex> lk(sendMu_);
     pkt.resize(pkt.size() + 64);  // SRTCP 尾部（index + auth tag）
     int n = srtpSend_->protectRtcp(pkt.data(), static_cast<int>(pkt.size() - 64), static_cast<int>(pkt.size()));
     if (n > 0) ice_->send(pkt.data(), static_cast<size_t>(n));

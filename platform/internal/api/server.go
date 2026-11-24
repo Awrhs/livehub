@@ -196,6 +196,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	// 播放反向代理（HLS / HTTP-FLV / WS-FLV）
 	mux.HandleFunc("/live/", s.handlePlayback)
 	mux.HandleFunc("POST /whep/{slug}", s.handleWHEP)
+	mux.HandleFunc("DELETE /whep/{slug}/{session}", s.handleWHEPDelete)
 
 	// 前端单页应用
 	if s.Static != nil {

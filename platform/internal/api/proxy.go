@@ -55,6 +55,15 @@ func (s *Server) handleWHEP(w http.ResponseWriter, r *http.Request) {
 	s.proxy.ServeHTTP(w, r)
 }
 
+// handleWHEPDelete 结束 WebRTC 播放会话（WHEP 规范：DELETE 会话资源地址），立即释放服务器资源。
+func (s *Server) handleWHEPDelete(w http.ResponseWriter, r *http.Request) {
+	if s.proxy == nil || s.Cfg.WebRTCCandidateIP == "" {
+		http.NotFound(w, r)
+		return
+	}
+	s.proxy.ServeHTTP(w, r)
+}
+
 // handlePlayback 只放行播放相关的 GET/HEAD 请求（HLS 播放列表/分片、HTTP-FLV、WS-FLV）。
 func (s *Server) handlePlayback(w http.ResponseWriter, r *http.Request) {
 	if s.proxy == nil {

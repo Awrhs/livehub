@@ -20,6 +20,7 @@ if os.environ.get("WEBRTC_DEBUG"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 import aiohttp
+from yarl import URL
 from aiortc import RTCPeerConnection, RTCSessionDescription
 from aiortc.contrib.media import MediaPlayer
 from aiortc.rtcrtpsender import RTCRtpSender
@@ -30,6 +31,9 @@ def prefer(transceiver, kind, mime):
     codecs = [c for c in caps.codecs if c.mimeType.lower() == mime.lower()]
     if codecs:
         transceiver.setCodecPreferences(codecs)
+
+
+LOCATION = {}
 
 
 async def signal(pc, url):
@@ -43,8 +47,18 @@ async def signal(pc, url):
             body = await r.text()
             if r.status not in (200, 201):
                 return r.status, body
+            # 会话资源地址（结束时 DELETE，WHIP/WHEP 规范）
+            LOCATION["url"] = str(r.url.join(URL(r.headers.get("Location", ""))))
             await pc.setRemoteDescription(RTCSessionDescription(sdp=body, type="answer"))
             return r.status, ""
+
+
+async def delete_session():
+    if not LOCATION.get("url"):
+        return 0
+    async with aiohttp.ClientSession() as s:
+        async with s.delete(LOCATION["url"]) as r:
+            return r.status
 
 
 async def whip(url, secs):
@@ -63,7 +77,8 @@ async def whip(url, secs):
         await asyncio.sleep(0.1)
         if pc.connectionState in ("failed", "closed"):
             break
-    print(f"status={status} state={pc.connectionState} ice={pc.iceConnectionState}")
+    deleted = await delete_session()
+    print(f"status={status} state={pc.connectionState} ice={pc.iceConnectionState} deleted={deleted}")
     await pc.close()
 
 
@@ -90,8 +105,9 @@ async def whep(url, secs):
         print(f"status={status} state=failed video_frames=0 audio_frames=0 error={err[:120]!r}")
         return
     await asyncio.sleep(secs)
+    deleted = await delete_session()
     print(f"status={status} state={pc.connectionState} ice={pc.iceConnectionState} "
-          f"video_frames={counts['video']} audio_frames={counts['audio']}")
+          f"video_frames={counts['video']} audio_frames={counts['audio']} deleted={deleted}")
     await pc.close()
 
 

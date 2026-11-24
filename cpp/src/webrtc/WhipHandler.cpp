@@ -32,7 +32,8 @@ void WhipHandler::registerRoutes(HttpServer& server) {
                     // WHIP 推流：流名已有推流者时由 resolver 返回空
                     auto stream = resolver_ ? resolver_(key, true) : nullptr;
                     if (!stream) return fail(HttpStatusCode::k409Conflict, "stream busy or not allowed");
-                    auto ingest = webrtc_->createIngest(key, stream);
+                    std::string sessionId;
+                    auto ingest = webrtc_->createIngest(key, stream, &sessionId);
                     if (!ingest) return fail(HttpStatusCode::k503ServiceUnavailable, "no ports");
                     // 对端 DTLS 证书指纹（按 sha-256 选取；offer 可能同时含多种算法）
                     ingest->setRemoteFingerprint(sdpFingerprint(req.body(), "sha-256"));
@@ -51,9 +52,18 @@ void WhipHandler::registerRoutes(HttpServer& server) {
 
                     resp.setStatusCode(HttpStatusCode::k201Created);
                     resp.setContentType("application/sdp");
-                    resp.addHeader("Location", "/whip/" + key);
+                    resp.addHeader("Location", "/whip/" + key + "/" + sessionId);
                     resp.setBody(ans.sdp);
                 });
+
+    // 结束推流：DELETE /whip/:stream/:session（WHIP 规范）
+    server.router().add(HttpMethod::DELETE, "/whip/:stream/:session",
+                        [this](const HttpRequest& req, HttpResponse& resp) {
+                            bool ok = webrtc_->removeSession(req.param("session"));
+                            resp.setStatusCode(ok ? HttpStatusCode::k200Ok : HttpStatusCode::k404NotFound);
+                            resp.setContentType("application/json");
+                            resp.setBody(ok ? "{\"ok\":true}" : "{\"error\":\"session not found\"}");
+                        });
 }
 
 }  // namespace streaming

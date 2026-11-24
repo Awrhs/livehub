@@ -44,10 +44,13 @@ async function startWhep(url: string, video: HTMLVideoElement, onFail: () => voi
     // 400：服务器无法与该浏览器协商出 H.264（如未安装 OpenH264 插件的 Firefox）
     throw new Error(resp.status === 400 ? 'no-h264' : 'WHEP ' + resp.status)
   }
+  // 会话资源地址：结束观看时 DELETE，服务器立即释放会话（WHEP 规范；否则等 30 秒超时回收）
+  const location = resp.headers.get('Location')
   await pc.setRemoteDescription({ type: 'answer', sdp: await resp.text() })
   return () => {
     pc.close()
     video.srcObject = null
+    if (location) void fetch(location, { method: 'DELETE', keepalive: true }).catch(() => {})
   }
 }
 

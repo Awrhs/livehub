@@ -11,6 +11,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 namespace streaming {
 
@@ -39,6 +40,15 @@ public:
     void release(const std::string& key);
 
     size_t activePulls() const;
+
+    /// 当前回源中的流名
+    std::vector<std::string> keys() const;
+    /// 回源流（不增加引用）；不存在返回 nullptr
+    std::shared_ptr<MediaStream> find(const std::string& key) const;
+    /// 回源已持续的毫秒数（新回源在观众订阅前不应被回收）
+    int64_t ageMs(const std::string& key) const;
+    /// 立即停止回源（无观众时由空闲检查调用）
+    void stop(const std::string& key);
 
 private:
     struct PullSession;

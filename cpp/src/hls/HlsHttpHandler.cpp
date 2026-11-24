@@ -95,6 +95,7 @@ bool HlsHttpHandler::servePlaylist(const std::string& stream,
         resp.setBody("{\"error\":\"stream not found\"}");
         return true;
     }
+    src->touchAccess();
     std::string body = src->playlist();
     if (!token.empty()) {
         // 播放器请求分片时不会自动带上 m3u8 的查询串：为每个分片 URI 追加 token
@@ -214,6 +215,7 @@ void HlsHttpHandler::registerRoutes(HttpServer& server) {
                 return;
             }
 
+            src->touchAccess();
             std::string path = src->outputDir() + "/" + stream + "/" + segment;
 
             // 先查内存缓存

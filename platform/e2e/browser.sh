@@ -27,5 +27,14 @@ done
 cd "$ROOT/web"
 npx playwright test "$@"
 rc=$?
+# 播放器离开 WebRTC 模式时应 DELETE 结束会话（仅在跑主用户旅程时检查）
+if [ $# -eq 0 ] && [ $rc -eq 0 ]; then
+  if grep -q 'WHEP 会话 .* 已由客户端结束' "$ART/livehub-browser.log"; then
+    echo "  [PASS] 播放器离开 WebRTC 模式时结束了 WHEP 会话（DELETE）"
+  else
+    echo "  [FAIL] 播放器离开 WebRTC 模式时未结束 WHEP 会话"
+    rc=1
+  fi
+fi
 cp -r playwright-report test-results "$ART/" 2>/dev/null
 exit $rc
