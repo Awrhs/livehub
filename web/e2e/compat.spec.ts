@@ -23,6 +23,14 @@ async function playing(page: Page) {
 }
 
 test('直播播放兼容性（OBS 风格推流，含 B 帧）', async ({ page, browserName }, info) => {
+  // 首个注册账号为管理员：用它关闭开播审批，后续各浏览器的测试账号即可直接推流
+  let a = await page.request.post('/api/v1/auth/register', { headers: H, data: { username: 'compatadmin', password: 'password123' } })
+  if (!a.ok()) a = await page.request.post('/api/v1/auth/login', { headers: H, data: { username: 'compatadmin', password: 'password123' } })
+  expect(a.ok()).toBeTruthy()
+  if ((await a.json()).role === 'admin') {
+    await page.request.put('/api/v1/admin/settings', { headers: H, data: { stream_approval: 'false' } })
+  }
+  await page.request.post('/api/v1/auth/logout', { headers: H })
   const user = 'compat' + info.project.name.replace(/\W/g, '')
   // 注册并生成推流码
   let r = await page.request.post('/api/v1/auth/register', { headers: H, data: { username: user, password: 'password123' } })
