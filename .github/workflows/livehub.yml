@@ -180,7 +180,7 @@ jobs:
         working-directory: platform
         run: |
           go mod tidy
-          go build -o livehub ./cmd/livehub
+          go build -buildvcs=false -o livehub ./cmd/livehub
       - name: 兼容性测试
         env:
           HOME: /root
