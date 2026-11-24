@@ -12,6 +12,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"livehub/internal/chat"
@@ -20,6 +21,7 @@ import (
 	"livehub/internal/media"
 	"livehub/internal/ratelimit"
 	"livehub/internal/store"
+	"livehub/internal/sysinfo"
 )
 
 const sessionCookie = "livehub_session"
@@ -61,6 +63,10 @@ type Server struct {
 	edges  []*edge
 	events *notifier
 
+	sys          *sysinfo.Sampler
+	diskLow      atomic.Bool
+	lastDiskWarn time.Time
+
 	stateMu  sync.Mutex
 	streams  map[string]*streamState // 频道 → 开播期间的录像/转码状态
 	abrReady map[string]bool
@@ -95,6 +101,7 @@ func New(cfg *config.Config, st *store.Store, mc *media.Client, hub *chat.Hub, l
 	}
 	s.initEdges()
 	s.events = newNotifier()
+	s.sys = &sysinfo.Sampler{Path: cfg.DataDir}
 	return s
 }
 

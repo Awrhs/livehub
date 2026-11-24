@@ -296,6 +296,15 @@ const en: Dict = {
   'admin.mailStatus': 'Email',
   'admin.mailTest': 'Send test email',
   'admin.mailTestOk': 'Test email sent to your address',
+  'admin.system': 'System',
+  'admin.cpu': 'CPU',
+  'admin.cores': 'cores',
+  'admin.memory': 'Memory',
+  'admin.disk': 'Disk (data dir)',
+  'admin.diskFree': 'Free',
+  'admin.network': 'Network',
+  'admin.diskLow': 'Low disk space ({free} free, threshold {min} MB): recording is paused. Delete old videos or add storage.',
+  'notify.disk_low': 'Low disk space ({body} free); recording paused',
 }
 
 export default en

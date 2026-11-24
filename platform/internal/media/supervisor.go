@@ -62,6 +62,7 @@ func (c ServerConfig) Render() string {
 	w("JWT_SECRET=%s", c.JWTSecret)
 	w("ADMIN_TOKEN=%s", c.AdminToken)
 	w("LOG_LEVEL=INFO")
+	w("ENABLE_TIMESHIFT=false") // 平台不使用时移回看，避免每路直播持续写盘
 	w("TRANSCODE_PROFILES=480p,720p")
 	w("TRANSCODE_CONCURRENCY=8")
 	if c.InternalToken != "" {

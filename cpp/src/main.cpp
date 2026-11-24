@@ -316,8 +316,8 @@ int main(int argc, char* argv[]) {
                 });
             (void)subId;
 
-            // DVR 时移自动开启（保留最近分片供回看）
-            dvrManager->enableTimeshift(ms);
+            // DVR 时移（保留最近分片供回看）：持续写盘，可用 ENABLE_TIMESHIFT=false 关闭
+            if (cfg.enableTimeshift()) dvrManager->enableTimeshift(ms);
         });
 
     // 注：on_play webhook 已在 setAuthHandler 中同步调用（鉴权），

@@ -141,6 +141,9 @@ func Load() (*Config, error) {
 	if c.SMTPHost != "" && c.SMTPFrom == "" {
 		return nil, fmt.Errorf("配置了 LIVEHUB_SMTP_HOST 时必须配置 LIVEHUB_SMTP_FROM（发件人地址）")
 	}
+	if c.MinFreeMB, err = envInt("LIVEHUB_MIN_FREE_MB", 2048); err != nil {
+		return nil, err
+	}
 	if c.RegisterPerMin, err = envInt("LIVEHUB_REGISTER_PER_MIN", 5); err != nil {
 		return nil, err
 	}

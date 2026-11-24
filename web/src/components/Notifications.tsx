@@ -83,6 +83,8 @@ export default function NotificationBell() {
         return t('notify.stream_approved')
       case 'stream_rejected':
         return t('notify.stream_rejected')
+      case 'disk_low':
+        return t('notify.disk_low', { body: n.body })
       default:
         return n.body
     }

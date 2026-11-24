@@ -16,6 +16,36 @@ interface Stats {
   media_enabled: boolean
   open_reports: number
   mail_enabled: boolean
+  disk_low: boolean
+  min_free_mb: number
+  system: {
+    cpu_percent: number
+    cpus: number
+    mem_total: number
+    mem_used: number
+    disk_total: number
+    disk_free: number
+    net_tx_bps: number
+    net_rx_bps: number
+    load1: number
+  }
+}
+
+const gb = (b: number) => (b / 1024 ** 3).toFixed(1) + ' GB'
+const mbps = (b: number) => (b / 1e6).toFixed(1) + ' Mbps'
+
+// 资源占用条
+function Meter({ label, value, max, text, warn }: { label: string; value: number; max: number; text: string; warn?: boolean }) {
+  const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0
+  return (
+    <div className="stat">
+      <div className="k">{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 600, margin: '4px 0 8px' }}>{text}</div>
+      <div className="meter">
+        <div style={{ width: pct + '%', background: warn || pct > 90 ? 'var(--danger)' : pct > 75 ? 'var(--warn)' : 'var(--ok)' }} />
+      </div>
+    </div>
+  )
 }
 
 export default function Admin() {
@@ -57,7 +87,32 @@ function Overview() {
     return () => window.clearInterval(id)
   }, [])
   if (!s) return <p className="dim">{t('common.loading')}</p>
+  const sys = s.system
   return (
+    <>
+    {s.disk_low && (
+      <div className="banner warn" data-testid="disk-low">
+        {t('admin.diskLow', { free: gb(sys.disk_free), min: s.min_free_mb })}
+      </div>
+    )}
+    <h3>{t('admin.system')}</h3>
+    <div className="stats">
+      <Meter label={t('admin.cpu')} value={sys.cpu_percent} max={100} text={`${sys.cpu_percent.toFixed(0)}% · ${sys.cpus} ${t('admin.cores')}`} />
+      <Meter label={t('admin.memory')} value={sys.mem_used} max={sys.mem_total} text={`${gb(sys.mem_used)} / ${gb(sys.mem_total)}`} />
+      <Meter
+        label={t('admin.disk')}
+        value={sys.disk_total - sys.disk_free}
+        max={sys.disk_total}
+        warn={s.disk_low}
+        text={`${t('admin.diskFree')} ${gb(sys.disk_free)} / ${gb(sys.disk_total)}`}
+      />
+      <div className="stat">
+        <div className="k">{t('admin.network')}</div>
+        <div style={{ fontSize: 18, fontWeight: 600, marginTop: 4 }}>↑ {mbps(sys.net_tx_bps)}</div>
+        <div className="dim">↓ {mbps(sys.net_rx_bps)}</div>
+      </div>
+    </div>
+    <h3>{t('admin.overview')}</h3>
     <div className="stats">
       <div className="stat">
         <div className="v">{s.users}</div>
@@ -116,6 +171,7 @@ function Overview() {
         </div>
       </div>
     </div>
+    </>
   )
 }
 

@@ -195,6 +195,9 @@ func (s *Server) RunBackground(ctx context.Context) {
 	reconcile := time.NewTicker(10 * time.Second)
 	thumbs := time.NewTicker(60 * time.Second)
 	defer thumbs.Stop()
+	disk := time.NewTicker(5 * time.Second)
+	defer disk.Stop()
+	s.checkDisk(ctx)
 	viewers := time.NewTicker(5 * time.Second)
 	cleanup := time.NewTicker(time.Hour)
 	defer reconcile.Stop()
@@ -210,6 +213,8 @@ func (s *Server) RunBackground(ctx context.Context) {
 			s.reconcile(ctx)
 		case <-viewers.C:
 			last = s.pushViewerCounts(ctx, last)
+		case <-disk.C:
+			s.checkDisk(ctx)
 		case <-thumbs.C:
 			s.refreshThumbs(ctx)
 		case <-cleanup.C:

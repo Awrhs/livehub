@@ -294,6 +294,15 @@ const zh = {
   'admin.mailStatus': '邮件服务',
   'admin.mailTest': '发送测试邮件',
   'admin.mailTestOk': '测试邮件已发送到你的邮箱',
+  'admin.system': '系统资源',
+  'admin.cpu': 'CPU',
+  'admin.cores': '核',
+  'admin.memory': '内存',
+  'admin.disk': '磁盘（数据目录）',
+  'admin.diskFree': '剩余',
+  'admin.network': '网络带宽',
+  'admin.diskLow': '磁盘剩余空间不足（剩余 {free}，阈值 {min} MB）：已暂停录像。请清理录像或扩容磁盘。',
+  'notify.disk_low': '磁盘剩余空间不足（剩余 {body}），已暂停录像',
 }
 
 export default zh

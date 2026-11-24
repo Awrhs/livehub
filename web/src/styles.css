@@ -235,3 +235,6 @@ td select { width: auto; padding: 4px 8px; }
   .header .right .btn.small { padding: 4px 8px; }
   .watch .info .avatar.lg { width: 44px; height: 44px; font-size: 18px; }
 }
+
+.meter { height: 6px; border-radius: 3px; background: var(--bg-elev2); overflow: hidden; }
+.meter > div { height: 100%; border-radius: 3px; transition: width .3s; }

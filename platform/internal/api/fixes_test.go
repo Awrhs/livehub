@@ -176,3 +176,31 @@ func TestViewerCountDedupAndLiveEvents(t *testing.T) {
 		t.Fatal("未收到实时开播通知")
 	}
 }
+
+func TestDiskGuardAndSystemStats(t *testing.T) {
+	e := newEnv(t)
+	admin := e.client()
+	admin.register("alice")
+	e.srv.checkDisk(context.Background()) // 首次采样
+	var st map[string]any
+	admin.do("GET", "/api/v1/admin/stats", nil, &st)
+	sys := st["system"].(map[string]any)
+	if sys["disk_total"].(float64) <= 0 || sys["mem_total"].(float64) <= 0 {
+		t.Fatalf("系统资源统计缺失: %v", sys)
+	}
+	if st["disk_low"] != false {
+		t.Fatalf("阈值为 0 时不应告警: %v", st["disk_low"])
+	}
+	e.srv.Cfg.MinFreeMB = 1 << 40 // 远大于任何磁盘
+	e.srv.checkDisk(context.Background())
+	admin.do("GET", "/api/v1/admin/stats", nil, &st)
+	if st["disk_low"] != true {
+		t.Fatal("剩余空间低于阈值时应告警")
+	}
+	var n map[string]any
+	admin.do("GET", "/api/v1/me/notifications", nil, &n)
+	list := n["notifications"].([]any)
+	if len(list) == 0 || list[0].(map[string]any)["kind"] != "disk_low" {
+		t.Fatalf("管理员应收到磁盘告警通知: %v", n)
+	}
+}

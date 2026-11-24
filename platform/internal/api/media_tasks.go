@@ -98,7 +98,9 @@ func (s *Server) afterLive(ch *store.Channel) {
 		s.Log.Warn("开播后未在媒体服务器找到推流", "channel", ch.Slug)
 		return
 	}
-	if s.Store.SettingBool(ctx, store.SettingRecordingEnabled) && ch.RecordEnabled {
+	if s.diskLow.Load() {
+		s.Log.Warn("磁盘剩余空间不足，本场不录像", "channel", ch.Slug)
+	} else if s.Store.SettingBool(ctx, store.SettingRecordingEnabled) && ch.RecordEnabled {
 		if ok, err := s.Media.StartRecord(ctx, ch.Slug); err != nil || !ok {
 			s.Log.Warn("开始录像失败", "channel", ch.Slug, "err", err)
 		} else {
@@ -329,4 +331,64 @@ func (s *Server) removeVOD(ctx context.Context, v *store.VOD) {
 	_ = os.Remove(filepath.Join(s.Cfg.VODDir(), v.File))
 	_ = os.Remove(filepath.Join(s.Cfg.ThumbDir(), "vod_"+strconv.FormatInt(v.ID, 10)+".jpg"))
 	_ = s.Store.DeleteVOD(ctx, v.ID)
+}
+
+// checkDisk 磁盘保护：剩余空间低于阈值时停止所有录像（已录部分照常归档），并通知管理员（6 小时内只通知一次）。
+func (s *Server) checkDisk(ctx context.Context) {
+	snap := s.sys.Sample()
+	if snap.DiskTotal == 0 {
+		return
+	}
+	low := snap.DiskFree < uint64(s.Cfg.MinFreeMB)<<20
+	was := s.diskLow.Swap(low)
+	if !low {
+		if was {
+			s.Log.Info("磁盘空间已恢复", "free_mb", snap.DiskFree>>20)
+		}
+		return
+	}
+	if !was {
+		s.Log.Warn("磁盘剩余空间不足，停止录像", "free_mb", snap.DiskFree>>20, "min_mb", s.Cfg.MinFreeMB)
+	}
+	// 停止进行中的录像
+	s.stateMu.Lock()
+	var slugs []string
+	for slug, st := range s.streams {
+		if st.recording {
+			st.recording = false
+			slugs = append(slugs, slug)
+		}
+	}
+	s.stateMu.Unlock()
+	for _, slug := range slugs {
+		ch, err := s.Store.ChannelBySlug(ctx, slug)
+		if err != nil || s.Media == nil {
+			continue
+		}
+		go func(ch *store.Channel) {
+			mu := s.recordMutex(ch.ID)
+			mu.Lock()
+			defer mu.Unlock()
+			_, _ = s.Media.StopRecord(context.Background(), ch.Slug)
+			var sid int64
+			if ch.CurrentSessionID != nil {
+				sid = *ch.CurrentSessionID
+			}
+			if err := s.archiveRecording(context.Background(), ch, sid); err != nil {
+				s.Log.Warn("录像归档失败", "channel", ch.Slug, "err", err)
+			}
+		}(ch)
+	}
+	if time.Since(s.lastDiskWarn) > 6*time.Hour {
+		s.lastDiskWarn = time.Now()
+		admins, _, err := s.Store.ListUsers(ctx, store.UserFilter{Role: store.RoleAdmin, Limit: 50})
+		if err == nil {
+			body := fmt.Sprintf("%d MB", snap.DiskFree>>20)
+			for _, a := range admins {
+				if err := s.Store.Notify(ctx, a.ID, "disk_low", nil, body); err == nil {
+					s.events.publish(a.ID, map[string]string{"type": "notification", "kind": "disk_low"})
+				}
+			}
+		}
+	}
 }
