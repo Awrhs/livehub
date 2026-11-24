@@ -80,6 +80,7 @@ test('站点完整用户旅程', async ({ browser }) => {
   // 4. 主播刷新后看到推流设置，修改直播标题
   await streamer.reload()
   await expect(streamer.getByTestId('ingest-url')).toHaveValue(/^rtmp:\/\//)
+  await streamer.getByTestId('generate-key').click()
   const publishKey = await streamer.getByTestId('publish-key').inputValue()
   expect(publishKey).toMatch(/^streamer1\?key=lh_/)
   await streamer.getByTestId('channel-title-input').fill('E2E 测试直播')

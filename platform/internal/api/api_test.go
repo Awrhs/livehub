@@ -94,6 +94,27 @@ func (c *client) register(name string) map[string]any {
 	return me
 }
 
+// newKey 生成推流码（明文只在这一次响应中出现）并校验格式。
+func (c *client) newKey() string {
+	c.env.t.Helper()
+	var me map[string]any
+	if code := c.do("POST", "/api/v1/me/channel/key", nil, &me); code != 200 {
+		c.env.t.Fatalf("生成推流码失败: %d", code)
+	}
+	nk := me["new_key"].(map[string]any)
+	key := nk["stream_key"].(string)
+	slug := me["channel"].(map[string]any)["slug"].(string)
+	if nk["publish_key"] != slug+"?key="+key || me["channel"].(map[string]any)["has_stream_key"] != true {
+		c.env.t.Fatalf("推流码响应错误: %v", me)
+	}
+	var again map[string]any
+	c.do("GET", "/api/v1/me", nil, &again)
+	if _, ok := again["new_key"]; ok {
+		c.env.t.Fatal("推流码只应在生成时返回一次")
+	}
+	return key
+}
+
 func (e *testEnv) hook(action, stream, param string) int {
 	e.t.Helper()
 	b, _ := json.Marshal(map[string]string{"action": action, "app": "live", "stream": stream, "param": param})
@@ -212,11 +233,13 @@ func TestStreamApprovalAndPublishHook(t *testing.T) {
 	if me["can_stream"] != false {
 		t.Fatalf("默认需要审批，新用户不应能开播: %v", me["can_stream"])
 	}
-	ch := me["channel"].(map[string]any)
-	key := ch["stream_key"].(string)
-	if ch["publish_key"] != "bob?key="+key {
-		t.Fatalf("推流码格式错误: %v", ch["publish_key"])
+	if me["channel"].(map[string]any)["has_stream_key"] != false {
+		t.Fatal("新用户不应已有推流码")
 	}
+	if _, ok := me["channel"].(map[string]any)["stream_key"]; ok {
+		t.Fatal("/me 不应返回推流码")
+	}
+	key := bob.newKey()
 	// 未审批：拒绝
 	if code := e.hook("on_publish", "bob", "?key="+key); code == 0 {
 		t.Fatal("未审批的用户推流应被拒绝")
@@ -260,9 +283,7 @@ func TestStreamApprovalAndPublishHook(t *testing.T) {
 		t.Fatalf("播放地址错误: %v", pb)
 	}
 	// 重置密钥后旧密钥失效
-	var me2 map[string]any
-	bob.do("POST", "/api/v1/me/channel/key", nil, &me2)
-	newKey := me2["channel"].(map[string]any)["stream_key"].(string)
+	newKey := bob.newKey()
 	if newKey == key {
 		t.Fatal("重置后密钥应变化")
 	}
@@ -293,7 +314,7 @@ func TestBanEndsStreamAndSessions(t *testing.T) {
 	if me["can_stream"] != true {
 		t.Fatal("关闭审批后新用户应能开播")
 	}
-	key := me["channel"].(map[string]any)["stream_key"].(string)
+	key := bob.newKey()
 	if code := e.hook("on_publish", "bob", "?key="+key); code != 0 {
 		t.Fatalf("推流应放行: %d", code)
 	}

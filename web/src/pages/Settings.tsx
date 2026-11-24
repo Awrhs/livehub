@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
-import { patch, post, type Me } from '../api'
+import { ApiError, del, patch, post, type Me } from '../api'
+import Avatar from '../components/Avatar'
 import { useI18n, type Lang } from '../i18n'
 import { useSession } from '../session'
 
@@ -47,6 +48,41 @@ export default function Settings() {
       {err && <div className="error">{err}</div>}
       <form className="card" onSubmit={saveProfile}>
         <h2>{t('settings.profile')}</h2>
+        <div className="row" style={{ marginBottom: 16 }}>
+          <Avatar name={me.display_name} url={me.avatar_url} size="lg" />
+          <label className="btn small" style={{ cursor: 'pointer' }}>
+            {t('settings.uploadAvatar')}
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              style={{ display: 'none' }}
+              data-testid="avatar-input"
+              onChange={async (e) => {
+                const f = e.target.files?.[0]
+                e.target.value = ''
+                if (!f) return
+                setErr('')
+                try {
+                  const resp = await fetch('/api/v1/me/avatar', {
+                    method: 'POST',
+                    headers: { 'X-Requested-With': 'livehub', 'Content-Type': f.type || 'application/octet-stream' },
+                    body: f,
+                  })
+                  const data = await resp.json()
+                  if (!resp.ok) throw new ApiError(resp.status, data?.error?.code || 'http', data?.error?.message || '')
+                  setMe(data as Me)
+                } catch (e) {
+                  setErr(errText(e))
+                }
+              }}
+            />
+          </label>
+          {me.avatar_url && (
+            <button type="button" className="small" onClick={async () => setMe(await del<Me>('/me/avatar'))}>
+              {t('settings.removeAvatar')}
+            </button>
+          )}
+        </div>
         <label className="field">
           <span>{t('auth.displayName')}</span>
           <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={32} required />

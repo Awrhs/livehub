@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import type { Channel } from '../api'
 import { useI18n } from '../i18n'
+import Avatar from './Avatar'
 
 export default function ChannelCard({ ch }: { ch: Channel }) {
   const { t, ago } = useI18n()
@@ -12,7 +13,7 @@ export default function ChannelCard({ ch }: { ch: Channel }) {
         {ch.is_live && <span className="viewers">{t('common.viewers', { n: ch.viewers ?? 0 })}</span>}
       </div>
       <div className="meta">
-        <span className="avatar">{ch.display_name.slice(0, 1)}</span>
+        <Avatar name={ch.display_name} url={ch.avatar_url} />
         <div style={{ minWidth: 0 }}>
           <div className="title">{ch.title}</div>
           <div className="sub">{ch.display_name}</div>

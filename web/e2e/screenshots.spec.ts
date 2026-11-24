@@ -79,7 +79,7 @@ test('README 截图', async ({ browser }) => {
   await newbie.api.post('/api/v1/me/stream-request', { headers: H, data: { note: '我是大学摄影社的，想直播校园活动。' } })
 
   // 先推一段短流生成回放（录像需 ≥3 秒）
-  const vodKey = (await (await accounts.gopher.api.get('/api/v1/me')).json()).channel.publish_key
+  const vodKey = (await (await accounts.gopher.api.post('/api/v1/me/channel/key', { headers: H })).json()).new_key.publish_key
   const vodPush = push(vodKey, 'testsrc2=size=1280x720:rate=25', 15)
   await new Promise((r) => vodPush.on('exit', r))
   await waitFor(async () => (await (await admin.api.get('/api/v1/channels/gopher/vods')).json()).vods.length > 0)
@@ -88,8 +88,8 @@ test('README 截图', async ({ browser }) => {
 
   // 四个频道同时开播
   for (const s of streamers) {
-    const me = await (await accounts[s.u].api.get('/api/v1/me')).json()
-    push(me.channel.publish_key, s.src, 300)
+    const me = await (await accounts[s.u].api.post('/api/v1/me/channel/key', { headers: H })).json()
+    push(me.new_key.publish_key, s.src, 300)
   }
   for (const s of streamers) {
     await waitFor(async () => (await (await admin.api.get('/api/v1/channels/' + s.u)).json()).channel.thumbnail)

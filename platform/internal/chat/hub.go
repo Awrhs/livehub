@@ -3,12 +3,14 @@ package chat
 
 import (
 	"encoding/json"
+	"fmt"
 	"sync"
 )
 
 // Client 一个 WebSocket 连接。Send 满时视为慢客户端并断开（不阻塞广播）。
 type Client struct {
-	UserID int64 // 0 = 游客
+	UserID int64  // 0 = 游客
+	Key    string // 观众去重键：登录用户为 "u:<ID>"，游客为 "ip:<地址>"（同一人多开标签页只计一次）
 	Send   chan []byte
 	// Kick 由 Hub 在客户端过慢或被管理员移出时调用（须幂等）
 	Kick func(reason string)
@@ -39,7 +41,7 @@ func (h *Hub) Join(channelID int64, c *Client) int {
 		h.rooms[channelID] = r
 	}
 	r.clients[c] = struct{}{}
-	return len(r.clients)
+	return r.distinct()
 }
 
 // Leave 离开房间，返回剩余连接数。
@@ -51,30 +53,43 @@ func (h *Hub) Leave(channelID int64, c *Client) int {
 		return 0
 	}
 	delete(r.clients, c)
-	n := len(r.clients)
-	if n == 0 {
+	n := r.distinct()
+	if len(r.clients) == 0 {
 		delete(h.rooms, channelID)
 	}
 	return n
 }
 
-// Count 房间连接数（作为观众数）。
+// distinct 房间内去重后的观众数（调用方持锁）。
+func (r *room) distinct() int {
+	seen := make(map[string]struct{}, len(r.clients))
+	for c := range r.clients {
+		k := c.Key
+		if k == "" {
+			k = fmt.Sprintf("%p", c)
+		}
+		seen[k] = struct{}{}
+	}
+	return len(seen)
+}
+
+// Count 房间观众数（按观众去重）。
 func (h *Hub) Count(channelID int64) int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if r := h.rooms[channelID]; r != nil {
-		return len(r.clients)
+		return r.distinct()
 	}
 	return 0
 }
 
-// Counts 所有房间连接数快照。
+// Counts 所有房间观众数快照。
 func (h *Hub) Counts() map[int64]int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	out := make(map[int64]int, len(h.rooms))
 	for id, r := range h.rooms {
-		out[id] = len(r.clients)
+		out[id] = r.distinct()
 	}
 	return out
 }

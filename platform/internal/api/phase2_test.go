@@ -17,8 +17,8 @@ func TestFollowAndLiveNotification(t *testing.T) {
 	admin.register("alice")
 	admin.do("PUT", "/api/v1/admin/settings", map[string]string{"stream_approval": "false"}, nil)
 	bob := e.client()
-	me := bob.register("bob")
-	key := me["channel"].(map[string]any)["stream_key"].(string)
+	bob.register("bob")
+	key := bob.newKey()
 	carol := e.client()
 	carol.register("carol")
 
@@ -85,8 +85,8 @@ func TestInternalVariantPublish(t *testing.T) {
 	e := newEnv(t)
 	e.srv.InternalToken = "itok"
 	admin := e.client()
-	me := admin.register("alice")
-	key := me["channel"].(map[string]any)["stream_key"].(string)
+	admin.register("alice")
+	key := admin.newKey()
 	// 频道未开播时变体推流被拒
 	if code := e.hook("on_publish", "alice_720p", "?internal=itok"); code == 0 {
 		t.Fatal("频道未开播时变体推流应被拒绝")

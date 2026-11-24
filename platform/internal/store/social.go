@@ -63,17 +63,33 @@ type Notification struct {
 }
 
 // NotifyFollowers 给频道全部关注者发送开播通知（同一频道 10 分钟内只发一次，避免断线重连刷屏）。
-func (s *Store) NotifyFollowers(ctx context.Context, channelID int64, body string) (int64, error) {
+// 返回收到通知的用户 ID（用于实时推送）。
+func (s *Store) NotifyFollowers(ctx context.Context, channelID int64, body string) ([]int64, error) {
 	now := s.now()
-	res, err := s.DB.ExecContext(ctx, `INSERT INTO notifications(user_id, kind, channel_id, body, created_at)
-		SELECT f.user_id, 'live', ?, ?, ? FROM follows f
+	rows, err := s.DB.QueryContext(ctx, `SELECT f.user_id FROM follows f
 		WHERE f.channel_id = ? AND NOT EXISTS (
 			SELECT 1 FROM notifications n WHERE n.user_id = f.user_id AND n.channel_id = ? AND n.kind = 'live'
-			AND n.created_at > ?)`, channelID, body, now, channelID, channelID, now-600)
+			AND n.created_at > ?)`, channelID, channelID, now-600)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return res.RowsAffected()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	for _, id := range ids {
+		if _, err := s.DB.ExecContext(ctx, `INSERT INTO notifications(user_id, kind, channel_id, body, created_at)
+			VALUES (?, 'live', ?, ?, ?)`, id, channelID, body, now); err != nil {
+			return nil, err
+		}
+	}
+	return ids, nil
 }
 
 func (s *Store) Notify(ctx context.Context, userID int64, kind string, channelID *int64, body string) error {

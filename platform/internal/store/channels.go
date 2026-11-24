@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"crypto/subtle"
 	"database/sql"
 	"errors"
 	"strings"
@@ -14,7 +15,7 @@ type Channel struct {
 	Title            string `json:"title"`
 	Category         string `json:"category"`
 	Description      string `json:"description"`
-	StreamKey        string `json:"-"`
+	StreamKeyHash    string `json:"-"` // "sha256:<hex>"；空表示尚未生成推流码
 	IsLive           bool   `json:"is_live"`
 	LiveStartedAt    *int64 `json:"live_started_at"`
 	LastLiveAt       *int64 `json:"last_live_at"`
@@ -23,24 +24,68 @@ type Channel struct {
 	CreatedAt        int64  `json:"created_at"`
 
 	// 关联的主播信息
-	DisplayName string `json:"display_name"`
-	OwnerBanned bool   `json:"-"`
+	DisplayName   string `json:"display_name"`
+	OwnerBanned   bool   `json:"-"`
+	AvatarURL     string `json:"avatar_url"`
+	avatarVersion int
 }
 
 // NewStreamKey 生成推流密钥。
 func NewStreamKey() string { return "lh_" + RandomToken(16) }
 
+// hashStreamKey 推流码只存摘要：密钥为 128 位随机数，SHA-256 足以防止数据库泄露后被直接使用。
+func hashStreamKey(k string) string { return "sha256:" + HashToken(k) }
+
+// HasStreamKey 是否已生成推流码。
+func (c *Channel) HasStreamKey() bool { return c.StreamKeyHash != "" }
+
+// CheckStreamKey 常数时间比较推流码。
+func (c *Channel) CheckStreamKey(k string) bool {
+	if k == "" || c.StreamKeyHash == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(hashStreamKey(k)), []byte(c.StreamKeyHash)) == 1
+}
+
+// MigrateStreamKeys 把旧版本（v1.0.0）明文存储的推流码转为摘要，原推流码继续有效。
+func (s *Store) MigrateStreamKeys(ctx context.Context) error {
+	rows, err := s.DB.QueryContext(ctx, `SELECT id, stream_key FROM channels WHERE stream_key != '' AND stream_key NOT LIKE 'sha256:%'`)
+	if err != nil {
+		return err
+	}
+	type kv struct {
+		id  int64
+		key string
+	}
+	var list []kv
+	for rows.Next() {
+		var x kv
+		if err := rows.Scan(&x.id, &x.key); err != nil {
+			rows.Close()
+			return err
+		}
+		list = append(list, x)
+	}
+	rows.Close()
+	for _, x := range list {
+		if _, err := s.DB.ExecContext(ctx, `UPDATE channels SET stream_key = ? WHERE id = ?`, hashStreamKey(x.key), x.id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 const channelCols = `c.id, c.user_id, c.slug, c.title, c.category, c.description, c.stream_key, c.is_live,
 	c.live_started_at, c.last_live_at, c.current_session_id, c.record_enabled, c.created_at,
-	u.display_name, u.banned`
+	u.display_name, u.banned, u.avatar_version`
 
 const channelFrom = ` FROM channels c JOIN users u ON u.id = c.user_id `
 
 func scanChannel(r scanner) (*Channel, error) {
 	var c Channel
 	var started, last, sess sql.NullInt64
-	err := r.Scan(&c.ID, &c.UserID, &c.Slug, &c.Title, &c.Category, &c.Description, &c.StreamKey, &c.IsLive,
-		&started, &last, &sess, &c.RecordEnabled, &c.CreatedAt, &c.DisplayName, &c.OwnerBanned)
+	err := r.Scan(&c.ID, &c.UserID, &c.Slug, &c.Title, &c.Category, &c.Description, &c.StreamKeyHash, &c.IsLive,
+		&started, &last, &sess, &c.RecordEnabled, &c.CreatedAt, &c.DisplayName, &c.OwnerBanned, &c.avatarVersion)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -50,6 +95,7 @@ func scanChannel(r scanner) (*Channel, error) {
 	c.LiveStartedAt = nullInt(started)
 	c.LastLiveAt = nullInt(last)
 	c.CurrentSessionID = nullInt(sess)
+	c.AvatarURL = AvatarURL(c.UserID, c.avatarVersion)
 	return &c, nil
 }
 
@@ -67,6 +113,7 @@ func (s *Store) ChannelByID(ctx context.Context, id int64) (*Channel, error) {
 
 type ChannelFilter struct {
 	LiveOnly bool
+	EverLive bool // 只列出开播过的频道（首页不展示从未开播的空频道）
 	Query    string
 	Category string
 	Limit    int
@@ -79,6 +126,8 @@ func (s *Store) ListChannels(ctx context.Context, f ChannelFilter) ([]*Channel, 
 	var args []any
 	if f.LiveOnly {
 		where = append(where, "c.is_live = 1")
+	} else if f.EverLive {
+		where = append(where, "(c.is_live = 1 OR c.last_live_at IS NOT NULL)")
 	}
 	if q := strings.TrimSpace(f.Query); q != "" {
 		where = append(where, "(c.slug LIKE ? OR c.title LIKE ? OR u.display_name LIKE ?)")
@@ -160,7 +209,7 @@ func (s *Store) UpdateChannel(ctx context.Context, id int64, title, category, de
 
 func (s *Store) ResetStreamKey(ctx context.Context, id int64) (string, error) {
 	k := NewStreamKey()
-	_, err := s.DB.ExecContext(ctx, `UPDATE channels SET stream_key = ? WHERE id = ?`, k, id)
+	_, err := s.DB.ExecContext(ctx, `UPDATE channels SET stream_key = ? WHERE id = ?`, hashStreamKey(k), id)
 	return k, err
 }
 

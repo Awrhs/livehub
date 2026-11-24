@@ -98,7 +98,10 @@ role=$(api "$A" POST /auth/register '{"username":"alice","password":"password123
 api "$B" POST /auth/register '{"username":"bob","password":"password123","display_name":"Bob 的频道"}' >/dev/null
 [ "$(status)" = "201" ] && pass "注册 bob" || fail "注册 bob: $(status)"
 api "$C" POST /auth/register '{"username":"carol","password":"password123"}' >/dev/null
-KEY=$(api "$B" GET /me | jq -r .channel.publish_key)
+[ "$(api "$B" GET /me | jq -r .channel.has_stream_key)" = "false" ] && pass "新用户尚未生成推流码" || fail "新用户已有推流码"
+KEY=$(api "$B" POST /me/channel/key | jq -r .new_key.publish_key)
+api "$B" GET /me | grep -q "${KEY#*key=}" && fail "/me 泄露了推流码明文" || pass "推流码只在生成时返回"
+grep -aq "${KEY#*key=}" "$WORK/data/livehub.db"* && fail "数据库中存有推流码明文" || pass "数据库只存推流码摘要"
 INGEST=$(api "$B" GET /me | jq -r .ingest.rtmp)
 [ "$INGEST" = "rtmp://127.0.0.1/live" ] && pass "推流地址 $INGEST" || fail "推流地址=$INGEST"
 [[ "$KEY" == bob\?key=lh_* ]] && pass "推流码格式" || fail "推流码=$KEY"

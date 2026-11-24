@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"database/sql"
 	"errors"
 	"strings"
@@ -31,13 +32,25 @@ type User struct {
 	BanReason         string `json:"ban_reason"`
 	CreatedAt         int64  `json:"created_at"`
 	LastLoginAt       *int64 `json:"last_login_at"`
+	AvatarVersion     int    `json:"-"`
+	AvatarURL         string `json:"avatar_url"`
+	Email             string `json:"email"`
+	EmailVerified     bool   `json:"email_verified"`
 }
 
 // IsStaff 管理员或站务（可处理聊天、审核）。
 func (u *User) IsStaff() bool { return u.Role == RoleAdmin || u.Role == RoleModerator }
 
 const userCols = `id, username, display_name, password_hash, role, stream_status,
-	stream_request_note, bio, banned, ban_reason, created_at, last_login_at`
+	stream_request_note, bio, banned, ban_reason, created_at, last_login_at, avatar_version, email, email_verified`
+
+// AvatarURL 头像地址（无头像返回空串，前端显示首字）。
+func AvatarURL(userID int64, version int) string {
+	if version <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("/avatars/%d.jpg?v=%d", userID, version)
+}
 
 type scanner interface{ Scan(dest ...any) error }
 
@@ -45,7 +58,8 @@ func scanUser(r scanner) (*User, error) {
 	var u User
 	var last sql.NullInt64
 	err := r.Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.Role, &u.StreamStatus,
-		&u.StreamRequestNote, &u.Bio, &u.Banned, &u.BanReason, &u.CreatedAt, &last)
+		&u.StreamRequestNote, &u.Bio, &u.Banned, &u.BanReason, &u.CreatedAt, &last, &u.AvatarVersion, &u.Email,
+		&u.EmailVerified)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -53,6 +67,7 @@ func scanUser(r scanner) (*User, error) {
 		return nil, err
 	}
 	u.LastLoginAt = nullInt(last)
+	u.AvatarURL = AvatarURL(u.ID, u.AvatarVersion)
 	return &u, nil
 }
 
@@ -88,7 +103,7 @@ func (s *Store) CreateUserWithChannel(ctx context.Context, username, displayName
 		}
 		id, _ := res.LastInsertId()
 		if _, err := tx.ExecContext(ctx, `INSERT INTO channels(user_id, slug, title, stream_key, created_at)
-			VALUES (?, ?, ?, ?, ?)`, id, username, displayName+" 的直播间", NewStreamKey(), now); err != nil {
+			VALUES (?, ?, ?, '', ?)`, id, username, displayName+" 的直播间", now); err != nil {
 			if isUniqueErr(err) {
 				return ErrConflict
 			}
@@ -130,6 +145,20 @@ func (s *Store) TouchLogin(ctx context.Context, id int64) error {
 func (s *Store) UpdateProfile(ctx context.Context, id int64, displayName, bio string) error {
 	_, err := s.DB.ExecContext(ctx, `UPDATE users SET display_name = ?, bio = ? WHERE id = ?`, displayName, bio, id)
 	return err
+}
+
+// BumpAvatar 头像版本 +1（上传新头像）；clear 为 true 时清除头像。返回新版本号。
+func (s *Store) BumpAvatar(ctx context.Context, id int64, clear bool) (int, error) {
+	q := `UPDATE users SET avatar_version = avatar_version + 1 WHERE id = ?`
+	if clear {
+		q = `UPDATE users SET avatar_version = 0 WHERE id = ?`
+	}
+	if _, err := s.DB.ExecContext(ctx, q, id); err != nil {
+		return 0, err
+	}
+	var v int
+	err := s.DB.QueryRowContext(ctx, `SELECT avatar_version FROM users WHERE id = ?`, id).Scan(&v)
+	return v, err
 }
 
 func (s *Store) UpdatePassword(ctx context.Context, id int64, hash string) error {

@@ -135,6 +135,16 @@ function Users({ pendingOnly = false }: { pendingOnly?: boolean }) {
     }
   }
 
+  const resetPassword = async (u: User) => {
+    if (!window.confirm(t('admin.resetPwConfirm', { name: u.username }))) return
+    try {
+      const r = await post<{ password: string }>('/admin/users/' + u.id + '/password')
+      window.prompt(t('admin.resetPwDone', { name: u.username }), r.password)
+    } catch (e) {
+      setErr(errText(e))
+    }
+  }
+
   const ban = (u: User) => {
     const reason = window.prompt(t('admin.banReason'), '')
     if (reason === null) return
@@ -216,6 +226,11 @@ function Users({ pendingOnly = false }: { pendingOnly?: boolean }) {
                       {!pendingOnly && u.stream_status === 'approved' && (
                         <button className="small" onClick={() => void update(u, { stream_status: 'none' })}>
                           {t('admin.reject')}
+                        </button>
+                      )}
+                      {!pendingOnly && (
+                        <button className="small" onClick={() => void resetPassword(u)}>
+                          {t('admin.resetPw')}
                         </button>
                       )}
                       {!pendingOnly && u.id !== me?.id &&

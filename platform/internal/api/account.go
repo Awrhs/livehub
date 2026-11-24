@@ -295,6 +295,11 @@ func (s *Server) canStream(r *http.Request, u *store.User) bool {
 
 type myChannel struct {
 	*store.Channel
+	HasStreamKey bool `json:"has_stream_key"`
+}
+
+// revealedKey 新生成的推流码：只在生成的这一次响应中返回（库中只存摘要）。
+type revealedKey struct {
 	StreamKey  string `json:"stream_key"`
 	PublishKey string `json:"publish_key"` // OBS「推流码」：<频道>?key=<密钥>
 	SRTURL     string `json:"srt_url,omitempty"`
@@ -302,9 +307,10 @@ type myChannel struct {
 
 type meResponse struct {
 	*store.User
-	CanStream bool       `json:"can_stream"`
-	Channel   *myChannel `json:"channel"`
-	Ingest    ingestInfo `json:"ingest"`
+	CanStream bool         `json:"can_stream"`
+	Channel   *myChannel   `json:"channel"`
+	Ingest    ingestInfo   `json:"ingest"`
+	NewKey    *revealedKey `json:"new_key,omitempty"`
 }
 
 func (s *Server) meView(r *http.Request, u *store.User) (*meResponse, error) {
@@ -313,10 +319,7 @@ func (s *Server) meView(r *http.Request, u *store.User) (*meResponse, error) {
 		return nil, err
 	}
 	in := s.ingest(r)
-	mc := &myChannel{Channel: ch, StreamKey: ch.StreamKey, PublishKey: ch.Slug + "?key=" + ch.StreamKey}
-	if in.SRT != "" {
-		mc.SRTURL = in.SRT + "?streamid=" + url.QueryEscape("#!::r=live/"+mc.PublishKey+",m=publish")
-	}
+	mc := &myChannel{Channel: ch, HasStreamKey: ch.HasStreamKey()}
 	return &meResponse{User: u, CanStream: s.canStream(r, u), Channel: mc, Ingest: in}, nil
 }
 

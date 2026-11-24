@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -44,6 +45,8 @@ func (s *Server) handleListChannels(w http.ResponseWriter, r *http.Request) {
 	offset, _ := strconv.Atoi(q.Get("offset"))
 	list, err := s.Store.ListChannels(r.Context(), store.ChannelFilter{
 		LiveOnly: q.Get("live") == "1" || q.Get("live") == "true",
+		// 搜索时列出全部频道；浏览时只列开播过的
+		EverLive: q.Get("q") == "" && q.Get("all") != "1",
 		Query:    q.Get("q"),
 		Category: q.Get("category"),
 		Limit:    limit,
@@ -163,10 +166,21 @@ func (s *Server) handleResetKey(w http.ResponseWriter, r *http.Request, u *store
 		s.internalError(w, r, err)
 		return
 	}
-	if _, err := s.Store.ResetStreamKey(r.Context(), ch.ID); err != nil {
+	key, err := s.Store.ResetStreamKey(r.Context(), ch.ID)
+	if err != nil {
 		s.internalError(w, r, err)
 		return
 	}
 	s.Store.Audit(r.Context(), u.ID, "channel.reset_key", ch.Slug, "")
-	s.handleMe(w, r, u)
+	me, err := s.meView(r, u)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	nk := &revealedKey{StreamKey: key, PublishKey: ch.Slug + "?key=" + key}
+	if me.Ingest.SRT != "" {
+		nk.SRTURL = me.Ingest.SRT + "?streamid=" + url.QueryEscape("#!::r=live/"+nk.PublishKey+",m=publish")
+	}
+	me.NewKey = nk
+	writeJSON(w, http.StatusOK, me)
 }

@@ -75,6 +75,7 @@ export default function Dashboard() {
   const [note, setNote] = useState('')
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
+  const [newKey, setNewKey] = useState<Me['new_key'] | null>(null)
 
   useEffect(() => {
     if (!me) return
@@ -113,9 +114,11 @@ export default function Dashboard() {
   }
 
   const resetKey = async () => {
-    if (!window.confirm(t('dash.resetConfirm'))) return
+    if (me.channel.has_stream_key && !window.confirm(t('dash.resetConfirm'))) return
     try {
-      setMe(await post<Me>('/me/channel/key'))
+      const m = await post<Me>('/me/channel/key')
+      setNewKey(m.new_key ?? null)
+      setMe(m)
     } catch (e) {
       setErr(errText(e))
     }
@@ -154,20 +157,27 @@ export default function Dashboard() {
                 <span>{t('dash.server')}</span>
                 <CopyField value={me.ingest.rtmp} testId="ingest-url" />
               </label>
-              <label className="field">
-                <span>{t('dash.streamKey')}</span>
-                <CopyField value={ch.publish_key} secret testId="publish-key" />
-              </label>
-              {ch.srt_url && (
-                <label className="field">
-                  <span>{t('dash.srt')}</span>
-                  <CopyField value={ch.srt_url} secret />
-                </label>
+              {newKey ? (
+                <>
+                  <div className="banner warn">{t('dash.keyOnce')}</div>
+                  <label className="field">
+                    <span>{t('dash.streamKey')}</span>
+                    <CopyField value={newKey.publish_key} testId="publish-key" />
+                  </label>
+                  {newKey.srt_url && (
+                    <label className="field">
+                      <span>{t('dash.srt')}</span>
+                      <CopyField value={newKey.srt_url} />
+                    </label>
+                  )}
+                </>
+              ) : (
+                <p className="hint">{ch.has_stream_key ? t('dash.keyHidden') : t('dash.keyNone')}</p>
               )}
               <p className="hint">{t('dash.keyWarning')}</p>
               <p className="hint">{t('dash.obsGuide')}</p>
-              <button className="danger" onClick={resetKey}>
-                {t('dash.resetKey')}
+              <button className={ch.has_stream_key ? 'danger' : 'primary'} onClick={resetKey} data-testid="generate-key">
+                {ch.has_stream_key ? t('dash.resetKey') : t('dash.generateKey')}
               </button>
             </div>
           ) : (

@@ -55,7 +55,8 @@ type Server struct {
 	wsMu    sync.Mutex
 	wsPerIP map[string]int
 
-	edges []*edge
+	edges  []*edge
+	events *notifier
 
 	stateMu  sync.Mutex
 	streams  map[string]*streamState // 频道 → 开播期间的录像/转码状态
@@ -90,6 +91,7 @@ func New(cfg *config.Config, st *store.Store, mc *media.Client, hub *chat.Hub, l
 		s.proxy = newPlaybackProxy(cfg.MediaURL, log)
 	}
 	s.initEdges()
+	s.events = newNotifier()
 	return s
 }
 
@@ -97,7 +99,7 @@ func New(cfg *config.Config, st *store.Store, mc *media.Client, hub *chat.Hub, l
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	s.routes(mux)
-	return s.recoverer(s.withUser(s.csrf(mux)))
+	return s.recoverer(s.securityHeaders(s.withUser(s.csrf(mux))))
 }
 
 func (s *Server) routes(mux *http.ServeMux) {
@@ -138,6 +140,11 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v1/channels/{slug}/follow", s.requireUser(s.handleFollow))
 	mux.HandleFunc("GET /api/v1/me/following", s.requireUser(s.handleFollowing))
 	mux.HandleFunc("GET /api/v1/me/notifications", s.requireUser(s.handleNotifications))
+	mux.HandleFunc("GET /api/v1/me/events", s.requireUser(s.handleEvents))
+	mux.HandleFunc("POST /api/v1/me/avatar", s.requireUser(s.handleUploadAvatar))
+	mux.HandleFunc("DELETE /api/v1/me/avatar", s.requireUser(s.handleDeleteAvatar))
+	mux.HandleFunc("GET /avatars/{name}", s.handleAvatarFile)
+	mux.HandleFunc("POST /api/v1/admin/users/{id}/password", s.requireAdmin(s.handleAdminResetPassword))
 	mux.HandleFunc("POST /api/v1/me/notifications/read", s.requireUser(s.handleNotificationsRead))
 	mux.HandleFunc("POST /api/v1/channels/{slug}/report", s.requireUser(s.handleReport))
 	mux.HandleFunc("GET /api/v1/admin/reports", s.requireAdmin(s.handleAdminReports))
@@ -239,6 +246,30 @@ func (s *Server) csrf(next http.Handler) http.Handler {
 					return
 				}
 			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// securityHeaders 安全响应头：内容安全策略（CSP）、禁止被嵌入、禁止 MIME 嗅探等。
+func (s *Server) securityHeaders(next http.Handler) http.Handler {
+	// 边缘节点的播放请求跨域，须加入 connect-src / media-src
+	extra := ""
+	for _, e := range s.Cfg.EdgeURLs {
+		extra += " " + e
+	}
+	csp := "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+		"img-src 'self' data: blob:; font-src 'self' data:; " +
+		"media-src 'self' blob:" + extra + "; connect-src 'self' ws: wss:" + extra + "; " +
+		"worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		if !strings.HasPrefix(r.URL.Path, "/live/") && !strings.HasPrefix(r.URL.Path, "/whep/") {
+			h.Set("X-Frame-Options", "DENY")
+			h.Set("Content-Security-Policy", csp)
 		}
 		next.ServeHTTP(w, r)
 	})

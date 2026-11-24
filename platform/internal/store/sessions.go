@@ -27,10 +27,8 @@ func (s *Store) UserBySession(ctx context.Context, token string) (*User, error) 
 	if token == "" {
 		return nil, ErrNotFound
 	}
-	return scanUser(s.DB.QueryRowContext(ctx, `SELECT u.id, u.username, u.display_name, u.password_hash, u.role,
-		u.stream_status, u.stream_request_note, u.bio, u.banned, u.ban_reason, u.created_at, u.last_login_at
-		FROM sessions s JOIN users u ON u.id = s.user_id
-		WHERE s.token_hash = ? AND s.expires_at > ?`, HashToken(token), s.now()))
+	return scanUser(s.DB.QueryRowContext(ctx, `SELECT `+userCols+` FROM users
+		WHERE id = (SELECT user_id FROM sessions WHERE token_hash = ? AND expires_at > ?)`, HashToken(token), s.now()))
 }
 
 func (s *Store) DeleteSession(ctx context.Context, token string) error {

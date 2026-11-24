@@ -88,6 +88,11 @@ func (s *Server) handleChatWS(w http.ResponseWriter, r *http.Request) {
 			go conn.Close(websocket.StatusPolicyViolation, reason)
 		})
 	})
+	if uid != 0 {
+		client.Key = "u:" + strconv.FormatInt(uid, 10)
+	} else {
+		client.Key = "ip:" + ip
+	}
 	viewers := s.Hub.Join(ch.ID, client)
 	defer s.Hub.Leave(ch.ID, client)
 

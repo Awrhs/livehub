@@ -82,8 +82,11 @@ func (s *Server) waitStream(ctx context.Context, key string, timeout time.Durati
 // 与 afterOffline 共用频道录像锁，保证上一场录像归档完成后才开始新录像。
 func (s *Server) afterLive(ch *store.Channel) {
 	ctx := context.Background()
-	if n, err := s.Store.NotifyFollowers(ctx, ch.ID, ch.Title); err == nil && n > 0 {
-		s.Log.Info("已发送开播通知", "channel", ch.Slug, "count", n)
+	if ids, err := s.Store.NotifyFollowers(ctx, ch.ID, ch.Title); err == nil && len(ids) > 0 {
+		for _, id := range ids {
+			s.events.publish(id, map[string]string{"type": "notification", "kind": "live", "channel": ch.Slug})
+		}
+		s.Log.Info("已发送开播通知", "channel", ch.Slug, "count", len(ids))
 	}
 	if s.Media == nil {
 		return

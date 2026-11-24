@@ -18,6 +18,23 @@ export interface ChatEvents {
   onChannel?: (title: string, category: string) => void
 }
 
+const EMOJIS = ['😀', '😂', '🤣', '😍', '🥰', '😎', '🤔', '😮', '😭', '😡', '👍', '👎', '👏', '🙏', '🔥', '❤️', '🎉', '💯', '🚀', '👀', '🤝', '😴', '🍿', '🎮']
+
+const MENTION_RE = /(@[A-Za-z][A-Za-z0-9_]{2,23})/g
+
+// 渲染消息正文：@用户名 加粗显示
+function renderBody(body: string) {
+  return body.split(MENTION_RE).map((part, i) =>
+    i % 2 === 1 ? (
+      <strong key={i} className="mention-tag">
+        {part}
+      </strong>
+    ) : (
+      part
+    ),
+  )
+}
+
 // 按用户名生成稳定的昵称颜色
 function nameColor(name: string): string {
   let h = 0
@@ -34,6 +51,7 @@ export default function Chat({ slug, events }: { slug: string; events: ChatEvent
   const [slowMode, setSlowMode] = useState(0)
   const [text, setText] = useState('')
   const [err, setErr] = useState('')
+  const [emojiOpen, setEmojiOpen] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const stickRef = useRef(true)
@@ -155,13 +173,19 @@ export default function Chat({ slug, events }: { slug: string; events: ChatEvent
       >
         {msgs.length === 0 && connected && <div className="status">{t('chat.empty')}</div>}
         {msgs.map((m) => (
-          <div className="msg" key={m.id} data-testid="chat-msg">
+          <div
+            className={
+              'msg' + (me && m.user.id !== me.id && m.body.toLowerCase().includes('@' + me.username.toLowerCase()) ? ' mentioned' : '')
+            }
+            key={m.id}
+            data-testid="chat-msg"
+          >
             {m.user.role === 'admin' && <span className="badge accent" style={{ marginRight: 4 }}>A</span>}
             {m.user.role === 'moderator' && <span className="badge ok" style={{ marginRight: 4 }}>M</span>}
             <span className="name" style={{ color: nameColor(m.user.username) }}>
               {m.user.display_name}
             </span>
-            <span>{m.body}</span>
+            <span>{renderBody(m.body)}</span>
             {me?.can_moderate && (
               <span className="del" style={{ gap: 4 }}>
                 {m.user.id !== me.id && (
@@ -185,7 +209,27 @@ export default function Chat({ slug, events }: { slug: string; events: ChatEvent
       {!connected && <div className="status">{everConnected ? t('chat.disconnected') : t('chat.connecting')}</div>}
       {err && <div className="status error">{err}</div>}
       {me ? (
-        <form onSubmit={send}>
+        <form onSubmit={send} style={{ position: 'relative' }}>
+          <button type="button" className="ghost" onClick={() => setEmojiOpen((v) => !v)} aria-label="emoji" data-testid="emoji-btn">
+            😀
+          </button>
+          {emojiOpen && (
+            <div className="emoji-picker">
+              {EMOJIS.map((e) => (
+                <button
+                  type="button"
+                  key={e}
+                  className="ghost"
+                  onClick={() => {
+                    setText((v) => v + e)
+                    setEmojiOpen(false)
+                  }}
+                >
+                  {e}
+                </button>
+              ))}
+            </div>
+          )}
           <input
             value={text}
             onChange={(e) => setText(e.target.value)}

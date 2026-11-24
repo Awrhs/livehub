@@ -130,7 +130,7 @@ func (s *Server) authorizePublish(r *http.Request, app, name, param string) (*st
 	}
 	q, _ := url.ParseQuery(strings.TrimPrefix(param, "?"))
 	key := q.Get("key")
-	if key == "" || subtle.ConstantTimeCompare([]byte(key), []byte(ch.StreamKey)) != 1 {
+	if !ch.CheckStreamKey(key) {
 		return nil, "invalid stream key"
 	}
 	return ch, ""

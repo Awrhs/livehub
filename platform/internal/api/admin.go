@@ -129,9 +129,9 @@ func (s *Server) handleAdminPatchUser(w http.ResponseWriter, r *http.Request, ad
 		changes = append(changes, "stream_status="+*body.StreamStatus)
 		switch *body.StreamStatus {
 		case store.StreamApproved:
-			_ = s.Store.Notify(ctx, target.ID, "stream_approved", nil, "")
+			s.notifyUser(r, target.ID, "stream_approved", nil, "")
 		case store.StreamRejected:
-			_ = s.Store.Notify(ctx, target.ID, "stream_rejected", nil, "")
+			s.notifyUser(r, target.ID, "stream_rejected", nil, "")
 		}
 	}
 	if body.Banned != nil && *body.Banned != target.Banned {

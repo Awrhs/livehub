@@ -12,6 +12,9 @@ export interface User {
   ban_reason: string
   created_at: number
   last_login_at: number | null
+  avatar_url: string
+  email: string
+  email_verified: boolean
 }
 
 export interface Channel {
@@ -27,6 +30,7 @@ export interface Channel {
   record_enabled: boolean
   created_at: number
   display_name: string
+  avatar_url?: string
   viewers?: number
   playback?: { hls: string; flv: string; abr?: string; webrtc?: string; edge?: string }
   thumbnail?: string
@@ -39,7 +43,9 @@ export interface Ingest {
 
 export interface Me extends User {
   can_stream: boolean
-  channel: Channel & { stream_key: string; publish_key: string; srt_url?: string }
+  channel: Channel & { has_stream_key: boolean }
+  // 仅在生成推流码的那次响应中出现（服务端只存摘要）
+  new_key?: { stream_key: string; publish_key: string; srt_url?: string }
   ingest: Ingest
 }
 

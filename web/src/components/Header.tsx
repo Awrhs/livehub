@@ -3,6 +3,7 @@ import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { useSession } from '../session'
 import { useI18n } from '../i18n'
 import NotificationBell from './Notifications'
+import Avatar from './Avatar'
 
 export default function Header() {
   const { site, me, logout } = useSession()
@@ -51,9 +52,7 @@ export default function Header() {
         {me ? (
           <div className="menu" ref={menuRef}>
             <button className="ghost" onClick={() => setOpen((v) => !v)} aria-label="menu" data-testid="user-menu">
-              <span className="avatar" style={{ width: 30, height: 30 }}>
-                {me.display_name.slice(0, 1)}
-              </span>
+              <Avatar name={me.display_name} url={me.avatar_url} size={30} />
             </button>
             {open && (
               <div className="dropdown" onClick={() => setOpen(false)}>

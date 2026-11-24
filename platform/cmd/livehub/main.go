@@ -158,6 +158,9 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	if err := st.MigrateStreamKeys(ctx); err != nil {
+		return err
+	}
 	// 平台重启后，直播状态以媒体服务器为准：先全部置为下播，由对账恢复仍在推的流
 	if err := st.ResetAllLive(ctx); err != nil {
 		return err

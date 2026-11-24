@@ -139,6 +139,7 @@ label.check { display: flex; align-items: center; gap: 8px; margin-bottom: 14px;
   background: var(--accent); color: #fff; font-weight: 700; text-transform: uppercase;
 }
 .avatar.lg { width: 56px; height: 56px; font-size: 22px; }
+img.avatar { object-fit: cover; padding: 0; }
 
 .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
 .chip { padding: 4px 12px; border-radius: 999px; background: var(--bg-elev2); border: 1px solid var(--border); color: var(--text); font-size: 13px; cursor: pointer; }
@@ -207,3 +208,30 @@ td select { width: auto; padding: 4px 8px; }
 .menu .dropdown a:hover, .menu .dropdown button:hover { background: var(--bg-elev2); text-decoration: none; }
 .menu .dropdown hr { border: none; border-top: 1px solid var(--border); margin: 6px 0; }
 .menu .who { padding: 8px 10px; font-size: 13px; color: var(--text-dim); }
+
+/* ---- 聊天：表情与 @提及 ---- */
+.chat .msg.mentioned { background: color-mix(in srgb, var(--accent) 18%, transparent); border-left: 3px solid var(--accent); }
+.chat .mention-tag { color: var(--accent); }
+.emoji-picker {
+  position: absolute; bottom: calc(100% + 4px); left: 8px; display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px;
+  background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius); padding: 6px; z-index: 5;
+  box-shadow: 0 8px 30px rgba(0,0,0,.35);
+}
+.emoji-picker button { padding: 4px; font-size: 20px; }
+
+/* ---- 手机端直播间：播放器 → 信息 → 聊天 → 简介 ---- */
+@media (max-width: 1000px) {
+  .watch { display: flex; flex-direction: column; }
+  .watch .stage { display: contents; }
+  .watch .stage > * { order: 1; }
+  .watch .stage > .info { order: 2; padding: 12px 14px; }
+  .watch .stage > .banner { order: 3; }
+  .watch .chat { order: 4; height: 65vh; min-height: 360px; }
+  .watch .stage > .about { order: 5; padding-top: 16px; }
+  .watch .info .title { font-size: 16px; }
+}
+@media (max-width: 480px) {
+  .brand span { display: none; }
+  .header .right .btn.small { padding: 4px 8px; }
+  .watch .info .avatar.lg { width: 44px; height: 44px; font-size: 18px; }
+}

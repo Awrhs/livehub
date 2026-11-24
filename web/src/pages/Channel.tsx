@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { ApiError, del, get, post, type Channel, type VOD } from '../api'
 import VodCard from '../components/VodCard'
+import Avatar from '../components/Avatar'
 import { useSession } from '../session'
 import { Link } from 'react-router-dom'
 import Player from '../components/Player'
@@ -119,7 +120,7 @@ export default function ChannelPage() {
           </div>
         )}
         <div className="info">
-          <span className="avatar lg">{ch.display_name.slice(0, 1)}</span>
+          <Avatar name={ch.display_name} url={ch.avatar_url} size="lg" />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="title" data-testid="channel-title">{ch.title}</div>
             <div>

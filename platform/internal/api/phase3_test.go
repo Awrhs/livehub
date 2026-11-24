@@ -40,8 +40,8 @@ func TestEdgeSelection(t *testing.T) {
 		}
 	}
 	admin := e.client()
-	me := admin.register("alice")
-	key := me["channel"].(map[string]any)["stream_key"].(string)
+	admin.register("alice")
+	key := admin.newKey()
 	e.hook("on_publish", "alice", "?key="+key)
 	var ch map[string]any
 	e.client().do("GET", "/api/v1/channels/alice", nil, &ch)
