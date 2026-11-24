@@ -44,7 +44,7 @@ type Config struct {
 	WebRTCCandidateIP string
 	WebRTCPortMin     int
 	WebRTCPortMax     int
-	WebRTCUDPPort     int // 单端口复用：所有 WebRTC 观众共用此 UDP 端口（0 = 每个观众一个端口，使用上面的范围）
+	WebRTCUDPPort     int    // 单端口复用：所有 WebRTC 观众共用此 UDP 端口（0 = 每个观众一个端口，使用上面的范围）
 	TrustProxy        bool   // 信任 X-Forwarded-For / X-Forwarded-Proto（部署在反向代理后）
 	SecureCookies     string // auto | true | false
 	BcryptCost        int
@@ -56,7 +56,7 @@ type Config struct {
 	SMTPFrom       string
 	SMTPTLS        string
 	RegisterPerMin int // 每 IP 每分钟注册次数上限
-	MinFreeMB int // 数据目录剩余空间低于此值（MB）时停止录像并告警
+	MinFreeMB      int // 数据目录剩余空间低于此值（MB）时停止录像并告警
 	LogLevel       string
 }
 
