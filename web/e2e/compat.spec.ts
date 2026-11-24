@@ -10,9 +10,26 @@ test.afterEach(() => {
   push = null
 })
 
-async function playing(page: Page) {
+async function playing(page: Page, label: string) {
   const video = page.getByTestId('video')
   await expect(video).toBeVisible()
+  console.log(`[${label}] 开始验证播放`)
+  const diag = async () =>
+    video.evaluate((v: HTMLVideoElement) => ({
+      t: v.currentTime, rs: v.readyState, ns: v.networkState, paused: v.paused,
+      err: v.error ? `${v.error.code} ${v.error.message}` : null,
+      buf: v.buffered.length ? [v.buffered.start(0), v.buffered.end(v.buffered.length - 1)] : null,
+    }))
+  const timer = setInterval(async () => console.log(`[${label}]`, JSON.stringify(await diag().catch(() => null))), 5000)
+  try {
+    await playingInner(page)
+  } finally {
+    clearInterval(timer)
+  }
+}
+
+async function playingInner(page: Page) {
+  const video = page.getByTestId('video')
   await expect
     .poll(async () => video.evaluate((v: HTMLVideoElement) => v.currentTime), { timeout: 60_000, intervals: [1000] })
     .toBeGreaterThan(2)
@@ -47,6 +64,10 @@ test('直播播放兼容性（OBS 风格推流，含 B 帧）', async ({ page, b
     '-c:a', 'aac', '-b:a', '160k', '-f', 'flv', `rtmp://127.0.0.1:1935/live/${key}`,
   ], { stdio: 'inherit' })
 
+  page.on('console', (m) => {
+    if (m.type() === 'error' || m.type() === 'warning' || /error|Error/.test(m.text())) console.log('[browser]', m.type(), m.text().slice(0, 300))
+  })
+  page.on('pageerror', (e) => console.log('[pageerror]', String(e).slice(0, 300)))
   await page.goto('/' + user)
   await expect(page.getByTestId('live-badge')).toBeVisible({ timeout: 30_000 })
 
@@ -60,15 +81,15 @@ test('直播播放兼容性（OBS 风格推流，含 B 帧）', async ({ page, b
 
   // 标准模式（HLS）
   await page.getByTestId('player-mode').selectOption('hls')
-  await playing(page)
+  await playing(page, browserName + ' HLS')
 
   // 低延迟模式（HTTP-FLV）
   await page.getByTestId('player-mode').selectOption('flv')
-  await playing(page)
+  await playing(page, browserName + ' FLV')
 
   // 超低延迟（WebRTC）：Chrome 与 Firefox
   if (browserName !== 'webkit') {
     await page.getByTestId('player-mode').selectOption('webrtc')
-    await playing(page)
+    await playing(page, browserName + ' WebRTC')
   }
 })
