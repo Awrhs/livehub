@@ -2,8 +2,8 @@
 
 **社区自部署的多主播直播平台。**一条命令部署，主播用 OBS 推流，观众在网页上看直播、聊天、关注、看回放。
 
-[![LiveHub](https://github.com/Awrhs/streaming_media_server/actions/workflows/livehub.yml/badge.svg)](https://github.com/Awrhs/streaming_media_server/actions/workflows/livehub.yml)
-[![C++](https://github.com/Awrhs/streaming_media_server/actions/workflows/cpp.yml/badge.svg)](https://github.com/Awrhs/streaming_media_server/actions/workflows/cpp.yml)
+[![LiveHub](https://github.com/Awrhs/livehub/actions/workflows/livehub.yml/badge.svg)](https://github.com/Awrhs/livehub/actions/workflows/livehub.yml)
+[![C++](https://github.com/Awrhs/livehub/actions/workflows/cpp.yml/badge.svg)](https://github.com/Awrhs/livehub/actions/workflows/cpp.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 
 适合学校、社团、游戏社区、企业内部等需要**自己掌控数据**的场景：多个主播共用一个站点，管理员审批开播、管理用户与内容。

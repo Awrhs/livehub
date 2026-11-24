@@ -38,7 +38,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}"
 
 # ---- 运行时 ----
 FROM ubuntu:24.04
-LABEL org.opencontainers.image.source="https://github.com/Awrhs/streaming_media_server" \
+LABEL org.opencontainers.image.source="https://github.com/Awrhs/livehub" \
       org.opencontainers.image.title="LiveHub" \
       org.opencontainers.image.description="社区自部署的多主播直播平台" \
       org.opencontainers.image.licenses="AGPL-3.0-only"

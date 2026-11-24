@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # 浏览器 E2E：启动全新的 LiveHub（内嵌媒体服务器），运行 Playwright 用户旅程测试。
-# 用法：platform/e2e/browser.sh <livehub> <streaming_server>
+# 用法：platform/e2e/browser.sh <livehub> <streaming_server> [playwright 参数，如测试文件]
 set -uo pipefail
 LIVEHUB_BIN=${1:?}
 MEDIA_BIN=${2:?}
+shift 2
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 WORK=$(mktemp -d)
 ART=${E2E_ARTIFACT_DIR:-$WORK/artifacts}
@@ -21,7 +22,7 @@ for _ in $(seq 1 60); do
 done
 
 cd "$ROOT/web"
-npx playwright test
+npx playwright test "$@"
 rc=$?
 cp -r playwright-report test-results "$ART/" 2>/dev/null
 exit $rc

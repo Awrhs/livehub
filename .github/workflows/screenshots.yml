@@ -1,0 +1,64 @@
+name: Screenshots
+
+# 生成 README 截图：启动完整的 LiveHub，用 Playwright + Chrome 准备演示数据并截图，结果作为构件上传
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'web/e2e/screenshots.spec.ts'
+      - '.github/workflows/screenshots.yml'
+
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: 安装依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ ccache ffmpeg jq pkg-config fonts-noto-cjk fonts-noto-color-emoji \
+            libssl-dev libsrt-openssl-dev libsrtp2-dev libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev
+      - uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-release-${{ hashFiles('cpp/src/**', 'cpp/include/**', 'cpp/CMakeLists.txt', 'cpp/src/CMakeLists.txt') }}
+          restore-keys: ccache-release-
+      - name: 构建媒体服务器
+        env:
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
+        run: |
+          cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTS=OFF -DENABLE_TOOLS=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build cpp/build --target streaming_server -j"$(nproc)"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: 构建前端
+        working-directory: web
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+          cp -r dist/* ../platform/internal/webui/dist/
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: platform/go.mod
+      - name: 构建 LiveHub
+        working-directory: platform
+        run: go build -o livehub ./cmd/livehub
+      - name: 截图
+        env:
+          SCREENSHOTS: '1'
+          SCREENSHOT_DIR: ${{ github.workspace }}/screenshots
+          E2E_ARTIFACT_DIR: ${{ github.workspace }}/e2e-artifacts
+        run: platform/e2e/browser.sh "$PWD/platform/livehub" "$PWD/cpp/build/bin/streaming_server" e2e/screenshots.spec.ts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: screenshots
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: screenshots-debug
+          path: e2e-artifacts
