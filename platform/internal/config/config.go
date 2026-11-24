@@ -47,6 +47,7 @@ type Config struct {
 	TrustProxy        bool   // 信任 X-Forwarded-For / X-Forwarded-Proto（部署在反向代理后）
 	SecureCookies     string // auto | true | false
 	BcryptCost        int
+	RegisterPerMin int // 每 IP 每分钟注册次数上限
 	LogLevel          string
 }
 
@@ -115,6 +116,9 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	if c.WebRTCPortMax, err = envInt("LIVEHUB_WEBRTC_PORT_MAX", 50099); err != nil {
+		return nil, err
+	}
+	if c.RegisterPerMin, err = envInt("LIVEHUB_REGISTER_PER_MIN", 5); err != nil {
 		return nil, err
 	}
 	if c.BcryptCost, err = envInt("LIVEHUB_BCRYPT_COST", 10); err != nil {

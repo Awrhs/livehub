@@ -76,7 +76,7 @@ func New(cfg *config.Config, st *store.Store, mc *media.Client, hub *chat.Hub, l
 		Cfg: cfg, Store: st, Media: mc, Hub: hub, Log: log, HookSecret: hookSecret,
 		Static: static, Version: version,
 		authLimiter:     ratelimit.PerMinute(10, 10),
-		registerLimiter: ratelimit.PerMinute(5, 5),
+		registerLimiter: ratelimit.PerMinute(max(cfg.RegisterPerMin, 1), max(cfg.RegisterPerMin, 1)),
 		chatLimiter:     ratelimit.New(1, 3),
 		apiLimiter:      ratelimit.PerMinute(120, 60),
 		lastSent:        map[[2]int64]time.Time{},

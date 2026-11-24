@@ -30,7 +30,7 @@ async function user(browser: Browser, username: string, display: string): Promis
   const r = await page.request.post('/api/v1/auth/register', {
     headers: H, data: { username, password: 'password123', display_name: display },
   })
-  expect(r.ok()).toBeTruthy()
+  expect(r.ok(), `注册 ${username}: ${r.status()} ${await r.text()}`).toBeTruthy()
   return { page, api: page.request, me: await r.json() }
 }
 
@@ -52,7 +52,7 @@ test('README 截图', async ({ browser }) => {
   mkdirSync(OUT, { recursive: true })
 
   // ---- 演示数据 ----
-  const admin = await user(browser, 'admin', '站长')
+  const admin = await user(browser, 'zhanzhang', '站长')
   await admin.api.put('/api/v1/admin/settings', {
     headers: H,
     data: { site_name: 'LiveHub 社区', announcement: '🎉 欢迎来到 LiveHub！本周六晚 8 点举办社区直播活动，欢迎各位主播报名。' },

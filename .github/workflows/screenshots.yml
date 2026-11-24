@@ -50,6 +50,7 @@ jobs:
       - name: 截图
         env:
           SCREENSHOTS: '1'
+          LIVEHUB_REGISTER_PER_MIN: '100'
           SCREENSHOT_DIR: ${{ github.workspace }}/screenshots
           E2E_ARTIFACT_DIR: ${{ github.workspace }}/e2e-artifacts
         run: platform/e2e/browser.sh "$PWD/platform/livehub" "$PWD/cpp/build/bin/streaming_server" e2e/screenshots.spec.ts
