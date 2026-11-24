@@ -29,6 +29,7 @@ add_executable(unit_tests
     test_redis_protocol.cpp
     test_media_stream.cpp
     test_async_writer.cpp
+    test_tcp_sendfile.cpp
 )
 target_link_libraries(unit_tests PRIVATE streaming_core)
 target_include_directories(unit_tests PRIVATE ${CMAKE_SOURCE_DIR}/include)

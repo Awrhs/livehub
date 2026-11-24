@@ -18,6 +18,34 @@ namespace streaming {
 
 namespace {
 
+// 同一媒体包的 WS-FLV 帧对所有观众相同（服务器发出的帧不加掩码）：
+// 按包序号缓存，所有观众共享一份，不逐观众序列化与拷贝（见 FlvMuxer::sharedMediaTag）
+std::shared_ptr<const std::string> sharedWsFlvFrame(const MediaPacket& pkt) {
+    struct Cache {
+        uint64_t seq = 0;
+        uint32_t ts = 0;
+        size_t size = 0;
+        std::shared_ptr<const std::string> frame;
+    };
+    thread_local Cache cache;
+    if (pkt.seq != 0 && cache.frame && cache.seq == pkt.seq && cache.ts == pkt.timestamp &&
+        cache.size == pkt.data.size()) {
+        return cache.frame;
+    }
+    auto tag = FlvMuxer::sharedMediaTag(pkt);
+    std::vector<uint8_t> frame = WebSocket::buildFrame(
+        kWsBinary, reinterpret_cast<const uint8_t*>(tag->data()), tag->size());
+    std::shared_ptr<const std::string> out =
+        std::make_shared<std::string>(reinterpret_cast<const char*>(frame.data()), frame.size());
+    if (pkt.seq != 0) {
+        cache.seq = pkt.seq;
+        cache.ts = pkt.timestamp;
+        cache.size = pkt.data.size();
+        cache.frame = out;
+    }
+    return out;
+}
+
 struct WsFlvSession : public std::enable_shared_from_this<WsFlvSession> {
     std::weak_ptr<TcpConnection> conn;
     std::shared_ptr<MediaStream> stream;
@@ -68,14 +96,7 @@ struct WsFlvSession : public std::enable_shared_from_this<WsFlvSession> {
                     case FlowControl::kSend:
                         break;
                 }
-                Buffer out;
-                FlvMuxer::writeMediaTag(out, pkt);
-                std::vector<uint8_t> frame = WebSocket::buildFrame(
-                    kWsBinary,
-                    reinterpret_cast<const uint8_t*>(out.peek()),
-                    out.readableBytes());
-                c2->send(std::string(reinterpret_cast<char*>(frame.data()),
-                                     frame.size()));
+                c2->send(sharedWsFlvFrame(pkt));
             });
         return sess;
     }

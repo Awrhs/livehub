@@ -188,6 +188,12 @@ jobs:
           E2E_ARTIFACT_DIR: ${{ github.workspace }}/soak-artifacts
         run: cpp/tests/e2e/soak.sh "$PWD/cpp/build/bin/streaming_server" 360
 
+      - name: 基准（4 路推流 × 0/40/100/200 个观众）
+        timeout-minutes: 8
+        env:
+          E2E_ARTIFACT_DIR: ${{ github.workspace }}/soak-artifacts/bench
+        run: cpp/tests/e2e/bench_fanout.sh "$PWD/cpp/build/bin/streaming_server" 4 "0 10 25 50" 20
+
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4

@@ -226,7 +226,7 @@ void HlsHttpHandler::registerRoutes(HttpServer& server) {
                     resp.setContentType("video/MP2T");
                     resp.addHeader("Access-Control-Allow-Origin", "*");
                     resp.addHeader("Cache-Control", "public, max-age=60");  // 分片内容不变，可短期缓存（CDN 友好）
-                    resp.setBody(*cached);
+                    resp.setSharedBody(cached);  // 共享缓存内容，不逐请求拷贝
                     return;
                 }
             }

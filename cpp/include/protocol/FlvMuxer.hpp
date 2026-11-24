@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+#include <memory>
 #include "core/Buffer.hpp"
 #include "rtmp/Amf0.hpp"
 #include "rtmp/MediaStream.hpp"
@@ -32,6 +34,12 @@ public:
 
     /// 写一帧媒体 tag
     static void writeMediaTag(Buffer& out, const MediaPacket& pkt);
+
+    /// 序列化媒体 tag 为可在多个连接间共享的只读缓冲。
+    /// 同一线程内对同一个包（按 seq 识别）重复调用直接复用上次结果：
+    /// 一个包分发给 N 个 FLV 观众只序列化一次，跨线程投递也只传引用。
+    /// seq 为 0（未经 MediaStream 分发的包）时不缓存。
+    static std::shared_ptr<const std::string> sharedMediaTag(const MediaPacket& pkt);
 
     /// 通用 tag 写入
     static void writeTag(Buffer& out, uint8_t tagType, uint32_t timestamp,

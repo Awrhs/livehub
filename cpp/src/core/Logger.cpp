@@ -1,5 +1,7 @@
 #include "core/Logger.hpp"
 
+#include <atomic>
+#include <thread>
 #include <chrono>
 #include "core/Timestamp.hpp"
 
@@ -43,10 +45,14 @@ const char* levelToString(LogLevel level) {
 }
 
 // 日志写入受一个全局 mutex 保护，避免多线程输出交错
+// 有意泄漏：后台刷新线程在进程退出（静态对象析构）期间仍可能访问，不能被析构
 static std::mutex& logMutex() {
-    static std::mutex m;
-    return m;
+    static std::mutex* m = new std::mutex;
+    return *m;
 }
+
+// 有未刷新的日志（平凡析构的全局原子量，退出期间访问安全）
+static std::atomic<bool> g_logDirty{false};
 
 void Logger::writeLine(const char* data, size_t len) {
     if (fp_) {
@@ -64,7 +70,24 @@ void Logger::maybeFlush(LogLevel level) {
     if (level >= LogLevel::WARN || now - lastFlushMs_ >= 200) {
         flush();
         lastFlushMs_ = now;
+        return;
     }
+    // 本次未刷新：交给后台线程在 200ms 内刷新。原实现只在下一条日志到来时才可能刷新，
+    // 服务空闲时最后几行日志会一直滞留在缓冲区（运维看不到、被强杀时丢失）
+    // 后台线程不引用 Logger 对象（fflush(nullptr) 刷新全部输出流），进程退出时不会访问已析构对象
+    g_logDirty.store(true, std::memory_order_relaxed);
+    static std::once_flag once;
+    std::call_once(once, [] {
+        std::thread([] {
+            for (;;) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                if (g_logDirty.exchange(false, std::memory_order_relaxed)) {
+                    std::lock_guard<std::mutex> lk(logMutex());
+                    std::fflush(nullptr);
+                }
+            }
+        }).detach();
+    });
 }
 
 void Logger::flush() {

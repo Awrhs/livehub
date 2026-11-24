@@ -35,6 +35,10 @@ struct MediaPacket {
     bool enhanced = false;
     // Enhanced RTMP 包类型：0=sequence start,1=coded frames,2=coded frames X,3=codec config
     uint8_t enhancedPacketType = 0;
+
+    // 全局唯一的包序号，由 MediaStream::onPacket 分配（0 = 未分配）。
+    // 同一序号的包内容相同，分发时据此在观众间共享序列化结果（如 FLV tag），不逐观众拷贝。
+    uint64_t seq = 0;
 };
 
 /**

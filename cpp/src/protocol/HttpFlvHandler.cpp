@@ -67,9 +67,8 @@ struct FlvSession {
                 case FlowControl::kSend:
                     break;
             }
-            Buffer out;
-            FlvMuxer::writeMediaTag(out, pkt);
-            c2->send(&out);
+            // 同一包的 FLV tag 在所有观众间共享（只序列化一次，跨线程投递不拷贝）
+            c2->send(FlvMuxer::sharedMediaTag(pkt));
         });
     }
 

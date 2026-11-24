@@ -116,12 +116,14 @@ void HttpServer::sendResponse(const std::shared_ptr<TcpConnection>& conn, HttpRe
                               bool routed) {
     // 序列化头部到局部 Buffer（见上方注释，不能用 conn->outputBuffer()）
     Buffer out;
-    resp.appendToBuffer(&out);
+    resp.appendToBuffer(&out, /*includeSharedBody=*/false);
+    conn->send(&out);
 
-    // 文件 body：pread 读入后随头部一起交给连接的输出缓冲。
-    // 原实现在 Reactor 线程里对非阻塞 socket 做 sendfile 忙等（EAGAIN 自旋），
-    // 慢客户端会卡死整个事件循环，且可能与排队中的头部乱序。
-    // TODO(perf): 在 TcpConnection 中实现带 EPOLLOUT 续传的 sendfile 零拷贝。
+    // 共享 body（缓存中的分片）：只传引用，不拷贝
+    if (resp.sharedBody() && !resp.sharedBody()->empty()) conn->send(resp.sharedBody());
+
+    // 文件 body：sendfile 零拷贝，socket 写满时由 TcpConnection 等 EPOLLOUT 续传，
+    // 不阻塞 Reactor，且保证排在头部之后（fd 所有权交给连接）
     if (resp.hasFileBody()) {
         int fd = resp.fileFd();
         if (routed) {
@@ -131,20 +133,11 @@ void HttpServer::sendResponse(const std::shared_ptr<TcpConnection>& conn, HttpRe
             off_t offset = resp.isRange()
                                ? static_cast<off_t>(resp.rangeStart())
                                : 0;
-            char chunk[64 * 1024];
-            size_t sent = 0;
-            while (sent < toSend) {
-                size_t want = std::min(sizeof(chunk), toSend - sent);
-                ssize_t n = ::pread(fd, chunk, want, offset);
-                if (n <= 0) break;
-                out.append(chunk, static_cast<size_t>(n));
-                offset += n;
-                sent += static_cast<size_t>(n);
-            }
+            conn->sendFile(fd, offset, toSend);
+        } else {
+            ::close(fd);
         }
-        ::close(fd);
     }
-    conn->send(&out);
 
     // 流式响应：把连接交给处理器持续推送（HTTP-FLV 等）
     if (routed && resp.isStreaming() && resp.streamCallback()) {

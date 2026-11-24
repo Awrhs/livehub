@@ -24,7 +24,7 @@ const char* HttpResponse::statusString(HttpStatusCode code) {
     }
 }
 
-void HttpResponse::appendToBuffer(Buffer* output) const {
+void HttpResponse::appendToBuffer(Buffer* output, bool includeSharedBody) const {
     char buf[64];
     int len = ::snprintf(buf, sizeof(buf), "HTTP/1.1 %d ",
                          static_cast<int>(statusCode_));
@@ -60,6 +60,9 @@ void HttpResponse::appendToBuffer(Buffer* output) const {
     output->append("\r\n");
     if (!body_.empty()) {
         output->append(body_);
+    }
+    if (includeSharedBody && sharedBody_) {
+        output->append(*sharedBody_);
     }
     // 文件 body 由 HttpServer 在发送完头部后用 sendfile 单独发送
 }

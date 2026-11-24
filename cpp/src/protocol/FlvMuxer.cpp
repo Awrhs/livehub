@@ -65,4 +65,32 @@ void FlvMuxer::writeMediaTag(Buffer& out, const MediaPacket& pkt) {
              pkt.data.size());
 }
 
+std::shared_ptr<const std::string> FlvMuxer::sharedMediaTag(const MediaPacket& pkt) {
+    // 单项缓存足够：MediaStream 对一个包依次调用全部订阅者回调（同一线程），
+    // 期间各 FLV 观众连续命中；键除 seq 外再核对时间戳/类型/长度，防御性避免误用。
+    struct Cache {
+        uint64_t seq = 0;
+        uint32_t ts = 0;
+        int type = 0;
+        size_t size = 0;
+        std::shared_ptr<const std::string> tag;
+    };
+    thread_local Cache cache;
+    if (pkt.seq != 0 && cache.tag && cache.seq == pkt.seq && cache.ts == pkt.timestamp &&
+        cache.type == static_cast<int>(pkt.type) && cache.size == pkt.data.size()) {
+        return cache.tag;
+    }
+    Buffer out;
+    writeMediaTag(out, pkt);
+    std::shared_ptr<const std::string> tag = std::make_shared<std::string>(out.retrieveAllAsString());
+    if (pkt.seq != 0) {
+        cache.seq = pkt.seq;
+        cache.ts = pkt.timestamp;
+        cache.type = static_cast<int>(pkt.type);
+        cache.size = pkt.data.size();
+        cache.tag = tag;
+    }
+    return tag;
+}
+
 }  // namespace streaming

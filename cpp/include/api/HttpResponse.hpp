@@ -71,6 +71,13 @@ public:
     }
     const std::string& body() const { return body_; }
 
+    /// 设置共享 body（如内存缓存中的分片）：发送时只传递引用，不拷贝
+    void setSharedBody(std::shared_ptr<const std::string> body) {
+        addHeader("Content-Length", std::to_string(body ? body->size() : 0));
+        sharedBody_ = std::move(body);
+    }
+    const std::shared_ptr<const std::string>& sharedBody() const { return sharedBody_; }
+
     /// 设置文件（用 sendfile 发送）
     /// @param fd 已打开的文件描述符
     /// @param size 文件大小
@@ -128,7 +135,8 @@ public:
     const StreamCallback& deferredCallback() const { return deferredCallback_; }
 
     /// 把响应头部序列化到 buffer（body 字符串也一起）
-    void appendToBuffer(Buffer* output) const;
+    /// 序列化响应。includeSharedBody=false 时不追加共享 body（由调用方零拷贝发送）
+    void appendToBuffer(Buffer* output, bool includeSharedBody = true) const;
 
     /// 是否用 sendfile 发送文件
     bool hasFileBody() const { return fileFd_ >= 0; }
@@ -145,6 +153,7 @@ private:
     std::string statusMessage_;
     std::unordered_map<std::string, std::string> headers_;
     std::string body_;
+    std::shared_ptr<const std::string> sharedBody_;
     bool closeConnection_;
 
     // 文件 body（sendfile）

@@ -1,5 +1,7 @@
 #include "rtmp/MediaStream.hpp"
 
+#include <atomic>
+
 #include "core/Logger.hpp"
 
 #include <algorithm>
@@ -32,9 +34,15 @@ void MediaStream::normalizeTimestamp(MediaPacket& pkt) {
     if (out > lastOutTs_) lastOutTs_ = out;
 }
 
+namespace {
+std::atomic<uint64_t> g_packetSeq{0};
+}  // namespace
+
 void MediaStream::onPacket(MediaPacket pkt) {
     std::lock_guard<std::mutex> dlk(dispatchMu_);
     if (!pkt.isSequenceHeader) normalizeTimestamp(pkt);
+    // 分配序号须在时间戳规整之后、进入 GOP 缓存与分发之前：之后包内容不再变化
+    pkt.seq = g_packetSeq.fetch_add(1, std::memory_order_relaxed) + 1;
     {
         std::lock_guard<std::mutex> lk(mu_);
         if (pkt.isSequenceHeader) {

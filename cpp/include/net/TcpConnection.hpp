@@ -10,7 +10,9 @@
 #include <atomic>
 #include <arpa/inet.h>
 #include <functional>
+#include <deque>
 #include <memory>
+#include <sys/types.h>
 #include <string>
 
 namespace streaming {
@@ -67,6 +69,11 @@ public:
 
     void send(const std::string& message);
     void send(Buffer* message);
+    /// 发送共享数据：跨线程投递时只传递引用计数，不拷贝（多个连接可共享同一份数据，如 FLV 分发）
+    void send(std::shared_ptr<const std::string> data);
+    /// 发送文件区间：sendfile 零拷贝，socket 写满时等 EPOLLOUT 续传，不阻塞 IO 线程。
+    /// 接管 fd 所有权（发送完毕或连接关闭时关闭）。之后发送的数据保证排在文件之后。
+    void sendFile(int fd, off_t offset, size_t len);
     void shutdown();       // 关闭写端
     void forceClose();     // 强制关闭
 
@@ -102,7 +109,8 @@ public:
     /// 用于下行流控：慢客户端积压过多时丢帧或断开。
     size_t pendingOutputBytes() const {
         return queuedBytes_.load(std::memory_order_relaxed) +
-               outputBytes_.load(std::memory_order_relaxed);
+               outputBytes_.load(std::memory_order_relaxed) +
+               segBytes_.load(std::memory_order_relaxed);
     }
 
     /// 每收到一次数据刷新一次（用于空闲超时统计）
@@ -145,6 +153,20 @@ private:
     void handleError();
 
     void sendInLoop(const void* data, size_t len);
+    void sendFileInLoop(int fd, off_t offset, size_t len);
+    // 文件发送期间及其后排队的输出（按顺序）：data 段或文件段
+    struct OutSeg {
+        std::string data;
+        size_t pos = 0;
+        int fd = -1;
+        off_t offset = 0;
+        size_t remaining = 0;
+    };
+    std::deque<OutSeg> segQueue_;
+    std::atomic<size_t> segBytes_{0};
+    /// 写出排队段：1=全部写完，0=socket 暂不可写，-1=出错（连接已关闭）
+    int flushSegQueue();
+    void closePendingFiles();
     void shutdownInLoop();
     void forceCloseInLoop();
 
