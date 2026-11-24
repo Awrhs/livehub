@@ -75,7 +75,7 @@ echo "== H.264 推流（供 RTSP / DVR 使用）"
 ffmpeg -hide_banner -loglevel warning -re -f lavfi -i "testsrc2=size=640x360:rate=25" \
     -f lavfi -i "sine=frequency=900:sample_rate=44100" \
     -c:v libx264 -preset ultrafast -tune zerolatency -g 50 -pix_fmt yuv420p \
-    -c:a aac -t 120 -f flv "rtmp://127.0.0.1:$RTMP/live/avc" >"$WORK/push_avc.log" 2>&1 &
+    -c:a aac -t 180 -f flv "rtmp://127.0.0.1:$RTMP/live/avc" >"$WORK/push_avc.log" 2>&1 &
 sleep 6
 
 echo "== RTSP 拉流"
@@ -157,19 +157,22 @@ if $PY -c "import aiortc" 2>/dev/null; then
         r=$(grep -o 'NACK 请求 [0-9]* 包，重传 [0-9]* 包' "$LOG" | tail -1)
         retx=$(echo "$r" | sed -n 's/.*重传 \([0-9]*\) 包/\1/p')
         [ "${retx:-0}" -gt 0 ] && pass "NACK 重传生效（$r）" || fail "丢包时未发生 NACK 重传（${r:-无记录}）"
-        # 拥塞控制：会话建立后注入 40% 丢包，观众 RR/REMB 应触发“只发关键帧”，服务器保持正常
-        $PY "$(dirname "$0")/webrtc_client.py" whep "http://127.0.0.1:$HTTP/whep/avc" 16 >"$WORK/whep_cong.out" 2>"$WORK/whep_cong.err" &
+        # 拥塞控制：会话建立后把 UDP（WebRTC 媒体）限速到 300kbit/s（低于源码率、队列很小），
+        # 模拟观众带宽不足；RTMP 推流走 TCP 不受影响。观众 RR/REMB 应触发“只发关键帧”
+        $PY "$(dirname "$0")/webrtc_client.py" whep "http://127.0.0.1:$HTTP/whep/avc" 18 >"$WORK/whep_cong.out" 2>"$WORK/whep_cong.err" &
         cpid=$!
         sleep 5
-        sudo -n tc qdisc add dev lo root netem loss 40% 2>/dev/null
-        sleep 8
+        sudo -n tc qdisc add dev lo root handle 1: prio
+        sudo -n tc qdisc add dev lo parent 1:3 handle 30: netem rate 300kbit limit 20
+        sudo -n tc filter add dev lo parent 1:0 protocol ip prio 1 u32 match ip protocol 17 0xff flowid 1:3
+        sleep 10
         sudo -n tc qdisc del dev lo root 2>/dev/null
         wait $cpid
         c=""
         for _ in $(seq 1 10); do c=$(grep -o '检测到拥塞 [0-9]* 次.*' "$LOG" | tail -1); [ -n "$c" ] && break; sleep 0.5; done
         echo "  [INFO] 拥塞会话：$(cat "$WORK/whep_cong.out")"
-        [ -n "$c" ] && pass "丢包拥塞时降为只发关键帧（$c）" || fail "40% 丢包下未检测到拥塞"
-        curl -sf --max-time 3 "http://127.0.0.1:$HTTP/api/health" >/dev/null && pass "重度丢包后服务器保持正常" || fail "重度丢包后服务器无响应"
+        [ -n "$c" ] && pass "带宽不足时降为只发关键帧（$c）" || fail "带宽受限时未检测到拥塞"
+        curl -sf --max-time 3 "http://127.0.0.1:$HTTP/api/health" >/dev/null && pass "拥塞后服务器保持正常" || fail "拥塞后服务器无响应"
     else
         echo "  [INFO] 无法设置 netem（需要 sudo tc），跳过丢包测试"
     fi

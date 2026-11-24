@@ -10,6 +10,18 @@
 namespace streaming {
 
 namespace {
+// 响应体字节数：字符串 body + 共享 body + 文件 body（sendfile 发送，不在 body() 中）
+size_t responseBytes(const HttpResponse& resp) {
+    size_t n = resp.body().size();
+    if (resp.sharedBody()) n += resp.sharedBody()->size();
+    if (resp.hasFileBody())
+        n += resp.isRange() ? resp.rangeEnd() - resp.rangeStart() + 1 : resp.fileSize();
+    return n;
+}
+}  // namespace
+
+
+namespace {
 const char* methodName(HttpMethod m) {
     switch (m) {
         case HttpMethod::GET: return "GET";
@@ -75,13 +87,13 @@ void AccessLog::operator()(const HttpRequest& req,
         std::string line = formatAccessLogJson(
             Timestamp::now().toFormattedString(true), logging::traceId(),
             req.clientIp, methodName(req.method()), req.path(), status,
-            resp.body().size(), ms, req.header("User-Agent"));
+            responseBytes(resp), ms, req.header("User-Agent"));
         Logger::instance().logRaw(line.data(), line.size());
     } else {
         // 默认单行；[trace=xx] 由 LOG_* 自动追加
         LOG_INFO("%s \"%s %s\" %d %zu %.2fms \"%s\"",
                  req.clientIp.c_str(), methodName(req.method()),
-                 req.path().c_str(), status, resp.body().size(), ms,
+                 req.path().c_str(), status, responseBytes(resp), ms,
                  req.header("User-Agent").c_str());
     }
 
