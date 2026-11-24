@@ -3,8 +3,8 @@ package api
 import (
 	"bytes"
 	"image"
-	"image/jpeg"
 	_ "image/gif" // 注册解码器
+	"image/jpeg"
 	_ "image/png"
 	"io"
 	"net/http"
