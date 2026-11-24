@@ -10,9 +10,12 @@ WORK=$(mktemp -d)
 ART=${E2E_ARTIFACT_DIR:-$WORK/artifacts}
 mkdir -p "$ART"
 
+# WebRTC 候选地址使用本机网卡 IP（Firefox 默认忽略回环地址候选，且更接近真实部署）
+CAND=$( (hostname -I 2>/dev/null || true) | awk '{print $1}')
+[ -n "$CAND" ] || CAND=127.0.0.1
 LIVEHUB_ADDR=:8000 LIVEHUB_DATA_DIR="$WORK/data" LIVEHUB_MEDIA_BIN="$MEDIA_BIN" \
   LIVEHUB_MEDIA_RTMP_PORT=1935 LIVEHUB_MEDIA_HTTP_PORT=8081 LIVEHUB_MEDIA_SRT_PORT=0 \
-  LIVEHUB_WEBRTC_CANDIDATE_IP=127.0.0.1 LIVEHUB_BCRYPT_COST=4 "$LIVEHUB_BIN" >"$ART/livehub-browser.log" 2>&1 &
+  LIVEHUB_WEBRTC_CANDIDATE_IP="$CAND" LIVEHUB_BCRYPT_COST=4 "$LIVEHUB_BIN" >"$ART/livehub-browser.log" 2>&1 &
 LH=$!
 trap 'kill $LH 2>/dev/null; wait $LH 2>/dev/null' EXIT
 
