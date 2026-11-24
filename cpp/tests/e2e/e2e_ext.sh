@@ -157,15 +157,19 @@ if $PY -c "import aiortc" 2>/dev/null; then
         r=$(grep -o 'NACK 请求 [0-9]* 包，重传 [0-9]* 包' "$LOG" | tail -1)
         retx=$(echo "$r" | sed -n 's/.*重传 \([0-9]*\) 包/\1/p')
         [ "${retx:-0}" -gt 0 ] && pass "NACK 重传生效（$r）" || fail "丢包时未发生 NACK 重传（${r:-无记录}）"
-        # 重度丢包（30%）：观众 RR 丢包率超过阈值时应降为只发关键帧（拥塞控制），服务器保持正常
-        if sudo -n tc qdisc add dev lo root netem loss 30% 2>/dev/null; then
-            $PY "$(dirname "$0")/webrtc_client.py" whep "http://127.0.0.1:$HTTP/whep/avc" 10 >"$WORK/whep_loss30.out" 2>"$WORK/whep_loss30.err"
-            sudo -n tc qdisc del dev lo root 2>/dev/null
-            sleep 1
-            c=$(grep -o '检测到拥塞 [0-9]* 次.*' "$LOG" | tail -1)
-            echo "  [INFO] 30% 丢包：$(cat "$WORK/whep_loss30.out")；${c:-未记录到拥塞}"
-            curl -sf --max-time 3 "http://127.0.0.1:$HTTP/api/health" >/dev/null && pass "重度丢包期间服务器保持正常" || fail "重度丢包后服务器无响应"
-        fi
+        # 拥塞控制：会话建立后注入 40% 丢包，观众 RR/REMB 应触发“只发关键帧”，服务器保持正常
+        $PY "$(dirname "$0")/webrtc_client.py" whep "http://127.0.0.1:$HTTP/whep/avc" 16 >"$WORK/whep_cong.out" 2>"$WORK/whep_cong.err" &
+        cpid=$!
+        sleep 5
+        sudo -n tc qdisc add dev lo root netem loss 40% 2>/dev/null
+        sleep 8
+        sudo -n tc qdisc del dev lo root 2>/dev/null
+        wait $cpid
+        c=""
+        for _ in $(seq 1 10); do c=$(grep -o '检测到拥塞 [0-9]* 次.*' "$LOG" | tail -1); [ -n "$c" ] && break; sleep 0.5; done
+        echo "  [INFO] 拥塞会话：$(cat "$WORK/whep_cong.out")"
+        [ -n "$c" ] && pass "丢包拥塞时降为只发关键帧（$c）" || fail "40% 丢包下未检测到拥塞"
+        curl -sf --max-time 3 "http://127.0.0.1:$HTTP/api/health" >/dev/null && pass "重度丢包后服务器保持正常" || fail "重度丢包后服务器无响应"
     else
         echo "  [INFO] 无法设置 netem（需要 sudo tc），跳过丢包测试"
     fi
