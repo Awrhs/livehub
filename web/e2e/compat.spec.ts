@@ -48,7 +48,7 @@ test('直播播放兼容性（OBS 风格推流，含 B 帧）', async ({ page, b
     await page.request.put('/api/v1/admin/settings', { headers: H, data: { stream_approval: 'false' } })
   }
   await page.request.post('/api/v1/auth/logout', { headers: H })
-  const user = 'compat' + info.project.name.replace(/\W/g, '')
+  const user = 'compat' + info.project.name.replace(/[^a-z0-9]/gi, '')
   // 注册并生成推流码
   let r = await page.request.post('/api/v1/auth/register', { headers: H, data: { username: user, password: 'password123' } })
   if (!r.ok()) r = await page.request.post('/api/v1/auth/login', { headers: H, data: { username: user, password: 'password123' } })
@@ -90,19 +90,17 @@ test('直播播放兼容性（OBS 风格推流，含 B 帧）', async ({ page, b
   // 超低延迟（WebRTC）：Chrome 与 Firefox
   if (browserName !== 'webkit') {
     await page.getByTestId('player-mode').selectOption('webrtc')
-    // 浏览器的 WebRTC 若无法使用 H.264（Playwright 的 Firefox 不带 OpenH264 插件），
-    // 服务器拒绝协商，播放器应给出明确提示；否则应正常播放
-    const noH264 = page.getByText('WebRTC 不支持 H.264')
-    const outcome = await Promise.race([
-      noH264.waitFor({ timeout: 20_000 }).then(() => 'no-h264').catch(() => 'timeout'),
-      page.waitForFunction(() => (document.querySelector('[data-testid=video]') as HTMLVideoElement | null)!.currentTime > 2,
-        null, { timeout: 20_000 }).then(() => 'playing').catch(() => 'timeout'),
-    ])
-    if (outcome === 'no-h264') {
-      test.info().annotations.push({ type: 'limitation', description: `${browserName} 的 WebRTC 不含 H.264，已显示明确提示` })
-      console.log(`[${browserName} WebRTC] 浏览器不支持 H.264，播放器已给出提示`)
+    if (info.project.name === 'firefox-noh264') {
+      // 未安装 OpenH264 的 Firefox：服务器无法协商 H.264，播放器必须给出明确提示（而不是无限重试）
+      await expect(page.getByText('WebRTC 不支持 H.264')).toBeVisible({ timeout: 20_000 })
+      console.log('[firefox-noh264 WebRTC] 已显示「不支持 H.264」提示')
     } else {
-      await playing(page, browserName + ' WebRTC')
+      await playing(page, info.project.name + ' WebRTC')
+      // 确认收到音频轨（AAC→Opus）
+      const audio = await page.getByTestId('video').evaluate((v: HTMLVideoElement) =>
+        v.srcObject instanceof MediaStream ? v.srcObject.getAudioTracks().length : 0,
+      )
+      expect(audio).toBe(1)
     }
   }
 })

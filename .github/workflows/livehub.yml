@@ -181,6 +181,19 @@ jobs:
         run: |
           go mod tidy
           go build -buildvcs=false -o livehub ./cmd/livehub
+      - name: 下载 OpenH264（Mozilla 官方分发的 Firefox WebRTC H.264 插件）
+        run: |
+          DEBIAN_FRONTEND=noninteractive apt-get install -y unzip
+          # 与正式版 Firefox 自动下载插件时访问的是同一个更新服务
+          line=$(curl -fsS "https://aus5.mozilla.org/update/3/GMP/132.0/20241010000000/Linux_x86_64-gcc3/en-US/release/Linux%206.1/default/default/update.xml" | grep 'id="gmp-gmpopenh264"')
+          url=$(echo "$line" | sed -n 's/.* URL="\([^"]*\)".*/\1/p')
+          hash=$(echo "$line" | sed -n 's/.*hashValue="\([^"]*\)".*/\1/p')
+          echo "OpenH264: $url"
+          curl -fsSL "$url" -o /tmp/openh264.zip
+          echo "$hash  /tmp/openh264.zip" | sha512sum -c -
+          dir=/opt/gmp/gmp-gmpopenh264/system-installed
+          mkdir -p "$dir" && unzip -o /tmp/openh264.zip -d "$dir" && ls -la "$dir"
+          echo "OPENH264_GMP_DIR=$dir" >> "$GITHUB_ENV"
       - name: 兼容性测试
         env:
           HOME: /root
