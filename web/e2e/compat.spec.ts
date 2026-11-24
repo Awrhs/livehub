@@ -50,6 +50,14 @@ test('直播播放兼容性（OBS 风格推流，含 B 帧）', async ({ page, b
   await page.goto('/' + user)
   await expect(page.getByTestId('live-badge')).toBeVisible({ timeout: 30_000 })
 
+  // 浏览器自身不支持 H.264（如 Playwright 自带的 Firefox 构建）：验证播放器给出明确提示后结束
+  const h264 = await page.evaluate(() => typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported('video/mp4; codecs="avc1.42E01E"'))
+  if (!h264) {
+    await expect(page.getByText('无法解码 H.264')).toBeVisible()
+    test.info().annotations.push({ type: 'limitation', description: `${browserName} 构建不含 H.264 解码器，跳过播放验证` })
+    return
+  }
+
   // 标准模式（HLS）
   await page.getByTestId('player-mode').selectOption('hls')
   await playing(page)

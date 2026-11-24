@@ -90,6 +90,13 @@ export default function Player({ hls, flv, abr, webrtc }: Props) {
     }
     let cleanup = () => {}
 
+    // 浏览器不支持 H.264 解码（如部分 Linux 发行版的 Firefox 未安装解码器）：给出明确提示，不再无限重试
+    const h264 =
+      typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported('video/mp4; codecs="avc1.42E01E"')
+    if (mode !== 'webrtc' && !h264 && !video.canPlayType('application/vnd.apple.mpegurl')) {
+      setError(t('player.noH264'))
+      return
+    }
     if (mode === 'webrtc' && webrtc) {
       let stop: (() => void) | null = null
       startWhep(webrtc, video, scheduleRetry)

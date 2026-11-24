@@ -78,6 +78,7 @@ const en: Dict = {
   'player.unmute': 'Click to unmute',
   'player.error': 'Playback error, retrying…',
   'player.unsupported': 'This playback mode is not supported by your browser',
+  'player.noH264': 'Your browser cannot decode H.264 video. Try Chrome, Edge or Safari, or install system video codecs (Firefox on Linux needs ffmpeg).',
 
   'chat.title': 'Chat',
   'chat.placeholder': 'Send a message…',
