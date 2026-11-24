@@ -48,14 +48,14 @@ type Config struct {
 	SecureCookies     string // auto | true | false
 	BcryptCost        int
 	// 邮件（SMTP）：未配置 Host/From 时邮件功能关闭
-	SMTPHost     string
-	SMTPPort     int
-	SMTPUser     string
-	SMTPPassword string
-	SMTPFrom     string
-	SMTPTLS      string
-	RegisterPerMin    int // 每 IP 每分钟注册次数上限
-	LogLevel          string
+	SMTPHost       string
+	SMTPPort       int
+	SMTPUser       string
+	SMTPPassword   string
+	SMTPFrom       string
+	SMTPTLS        string
+	RegisterPerMin int // 每 IP 每分钟注册次数上限
+	LogLevel       string
 }
 
 func env(key, def string) string {
