@@ -8,6 +8,18 @@
 
 适合学校、社团、游戏社区、企业内部等需要**自己掌控数据**的场景：多个主播共用一个站点，管理员审批开播、管理用户与内容。
 
+## 截图
+
+| 首页 | 直播间（播放 + 聊天） |
+|---|---|
+| ![首页](docs/screenshots/home.png) | ![直播间](docs/screenshots/channel.png) |
+| **主播后台** | **管理后台** |
+| ![主播后台](docs/screenshots/dashboard.png) | ![管理后台](docs/screenshots/admin-overview.png) |
+| **回放** | **手机端** |
+| ![回放](docs/screenshots/vods.png) | <img src="docs/screenshots/mobile.png" alt="手机端" width="260"> |
+
+截图由 [GitHub Actions](.github/workflows/screenshots.yml) 启动完整的 LiveHub、真实推流后用浏览器自动生成。
+
 ## 功能
 
 | 观众 | 主播 | 管理员 |
