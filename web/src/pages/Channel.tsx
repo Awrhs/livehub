@@ -185,7 +185,10 @@ export default function ChannelPage() {
       <Chat
         slug={ch.slug}
         events={{
-          onLive: () => void load(),
+          onLive: (live) => {
+            // 状态与当前显示不一致时重新加载（开播后取得播放地址）
+            if (live !== ch.is_live) void load()
+          },
           onViewers: setViewers,
           onChannel: (title, category) => setCh((c) => (c ? { ...c, title, category } : c)),
         }}

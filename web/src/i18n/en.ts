@@ -78,6 +78,7 @@ const en: Dict = {
   'player.unmute': 'Click to unmute',
   'player.error': 'Playback error, retrying…',
   'player.unsupported': 'This playback mode is not supported by your browser',
+  'player.webrtcNoH264': "Your browser's WebRTC does not support H.264. Switch to Low latency (FLV) or Standard (HLS).",
   'player.noH264': 'Your browser cannot decode H.264 video. Try Chrome, Edge or Safari, or install system video codecs (Firefox on Linux needs ffmpeg).',
 
   'chat.title': 'Chat',

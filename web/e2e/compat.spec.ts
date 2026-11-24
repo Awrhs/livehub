@@ -89,7 +89,16 @@ test('直播播放兼容性（OBS 风格推流，含 B 帧）', async ({ page, b
 
   // 超低延迟（WebRTC）：Chrome 与 Firefox
   if (browserName !== 'webkit') {
+    const rtcH264 = await page.evaluate(
+      () => RTCRtpReceiver.getCapabilities('video')?.codecs.some((c) => /h264/i.test(c.mimeType)) ?? false,
+    )
     await page.getByTestId('player-mode').selectOption('webrtc')
-    await playing(page, browserName + ' WebRTC')
+    if (rtcH264) {
+      await playing(page, browserName + ' WebRTC')
+    } else {
+      // 该浏览器构建的 WebRTC 不含 H.264（Playwright 的 Firefox 不带 OpenH264 插件）：应给出明确提示
+      await expect(page.getByText('WebRTC 不支持 H.264')).toBeVisible()
+      test.info().annotations.push({ type: 'limitation', description: `${browserName} 的 WebRTC 不含 H.264` })
+    }
   }
 })

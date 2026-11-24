@@ -76,6 +76,7 @@ const zh = {
   'player.unmute': '点击开启声音',
   'player.error': '播放出错，正在重试…',
   'player.unsupported': '当前浏览器不支持该播放模式',
+  'player.webrtcNoH264': '当前浏览器的 WebRTC 不支持 H.264，请切换到「低延迟（FLV）」或「标准（HLS）」模式。',
   'player.noH264': '当前浏览器无法解码 H.264 视频。请换用 Chrome / Edge / Safari，或在系统中安装视频解码器（Linux 上的 Firefox 需要 ffmpeg）。',
 
   'chat.title': '聊天',

@@ -41,7 +41,8 @@ async function startWhep(url: string, video: HTMLVideoElement, onFail: () => voi
   const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, body: offer.sdp })
   if (!resp.ok) {
     pc.close()
-    throw new Error('WHEP ' + resp.status)
+    // 400：服务器无法与该浏览器协商出 H.264（如未安装 OpenH264 插件的 Firefox）
+    throw new Error(resp.status === 400 ? 'no-h264' : 'WHEP ' + resp.status)
   }
   await pc.setRemoteDescription({ type: 'answer', sdp: await resp.text() })
   return () => {
@@ -107,7 +108,10 @@ export default function Player({ hls, flv, abr, webrtc }: Props) {
             play()
           }
         })
-        .catch(scheduleRetry)
+        .catch((e: Error) => {
+          if (e.message === 'no-h264') setError(t('player.webrtcNoH264'))
+          else scheduleRetry()
+        })
       cleanup = () => {
         stop?.()
       }

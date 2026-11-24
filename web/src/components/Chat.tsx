@@ -84,6 +84,8 @@ export default function Chat({ slug, events }: { slug: string; events: ChatEvent
             setMe((m.me as ChatMe) || null)
             setSlowMode((m.slow_mode as number) || 0)
             eventsRef.current.onViewers?.(m.viewers as number)
+            // 连接建立时同步一次直播状态：页面加载与聊天连接之间开播/下播的事件不会丢失
+            eventsRef.current.onLive?.(m.is_live as boolean)
             break
           case 'msg':
             setMsgs((prev) => [...prev.slice(-199), m.message as ChatMessage])
