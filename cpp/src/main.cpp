@@ -467,6 +467,38 @@ int main(int argc, char* argv[]) {
             }
             return true;
         };
+    // 通用异步鉴权（HTTP-FLV / WS-FLV / SRT）：本地校验同步完成，webhook 异步执行，
+    // 结果经 done 回调（可能在 webhook 工作线程）；等待期间不占用调用线程。
+    auto authorizeStreamAsync =
+        [&](const std::string& host, const std::string& app, const std::string& rawKey, bool publish,
+            std::function<void(bool, const std::string&)> done) {
+            std::string reason;
+            if (!authorizeStream(host, app, rawKey, publish, &reason,
+                                 /*countQuota=*/false, /*callHook=*/false)) {
+                done(false, reason);
+                return;
+            }
+            auto vh = vhostManager->resolve(host);
+            const std::string event = publish ? "on_publish" : "on_play";
+            if (!vh || !webhooks->hasHook(event, vh->webhooks)) {
+                done(true, "");
+                return;
+            }
+            std::string key, query;
+            RtmpConnection::splitStreamKey(rawKey, &key, &query);
+            WebhookManager::EventMap fields;
+            fields["action"] = event;
+            fields["app"] = app;
+            fields["stream"] = key;
+            fields["vhost"] = vh->name;
+            if (!query.empty()) fields["param"] = "?" + query;
+            webhooks->authorizeAsync(event, fields, vh->webhooks,
+                [done](const WebhookManager::AuthResult& r) {
+                    done(r.allowed, r.allowed ? std::string()
+                                              : (r.message.empty() ? "denied by hook" : r.message));
+                });
+        };
+
     // RTMP 异步鉴权：本地校验（vhost/配额/应用/JWT）同步完成；webhook 异步执行，
     // 不阻塞 IO 线程。配额由 RtmpServer 在推/拉流成功时计入。
     rtmpServer->setAuthHandler(
@@ -582,6 +614,12 @@ int main(int argc, char* argv[]) {
                                /*countQuota=*/false, /*callHook=*/!hlsPoll);
     };
     hlsHandler.setPlayAuth(httpPlayAuth);
+    // HTTP-FLV 拉流：异步鉴权（on_play webhook 不阻塞 IO 线程）
+    hlsHandler.setAsyncPlayAuth(
+        [&](const std::string& host, const std::string& rawKey,
+            std::function<void(bool, const std::string&)> done) {
+            authorizeStreamAsync(host, "live", rawKey, false, std::move(done));
+        });
     // 边缘节点 HLS：按需回源并为回源流建立 HLS 桥接
     hlsHandler.setOnDemand([&](const std::string& key) {
         if (!edge) return;
@@ -610,9 +648,10 @@ int main(int argc, char* argv[]) {
             }
             return nullptr;
         });
-    wsFlvHandler.setPlayAuth(
-        [&](const HttpRequest& req, const std::string& key, std::string* reason) {
-            return httpPlayAuth(req, key, false, reason);
+    wsFlvHandler.setAsyncPlayAuth(
+        [&](const std::string& host, const std::string& rawKey,
+            std::function<void(bool, const std::string&)> done) {
+            authorizeStreamAsync(host, "live", rawKey, false, std::move(done));
         });
     wsFlvHandler.attach(httpServer);
 
@@ -1018,9 +1057,9 @@ int main(int argc, char* argv[]) {
             return ms;
         });
     srtServer->setAuthHandler(
-        [&](const std::string& rawKey, bool publish, std::string* reason) {
-            return authorizeStream("", "live", rawKey, publish, reason,
-                                   /*countQuota=*/false, /*callHook=*/true);
+        [&](const std::string& rawKey, bool publish,
+            std::function<void(bool, const std::string&)> done) {
+            authorizeStreamAsync("", "live", rawKey, publish, std::move(done));
         });
     srtServer->setPlayResolver(
         [&](const std::string& key) -> std::shared_ptr<MediaStream> {

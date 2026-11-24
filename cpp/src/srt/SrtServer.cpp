@@ -80,7 +80,10 @@ bool SrtServer::parseStreamId(const std::string& sid, std::string* key,
 SrtServer::SrtServer(EventLoop*, uint16_t port, const std::string& ip)
     : port_(port), ip_(ip) {}
 
-SrtServer::~SrtServer() { stop(); }
+SrtServer::~SrtServer() {
+    alive_->store(false);  // 尚未返回的异步鉴权回调不再访问本对象
+    stop();
+}
 
 size_t SrtServer::sessionCount() const {
     std::lock_guard<std::mutex> lk(mu_);
@@ -95,6 +98,7 @@ void SrtServer::start() {
 void SrtServer::stop() {}
 void SrtServer::run() {}
 void SrtServer::acceptOne() {}
+void SrtServer::setupSession(int, const std::string&, bool) {}
 void SrtServer::closeSession(int) {}
 
 #else  // HAVE_LIBSRT
@@ -160,20 +164,35 @@ void SrtServer::acceptOne() {
     srt_getsockflag(s, SRTO_STREAMID, sidBuf, &sidLen);
     std::string sid(sidBuf, sidLen > 0 ? static_cast<size_t>(sidLen) : 0);
 
-    std::string key, rawKey, reason;
+    std::string key, rawKey;
     bool publish = false;
     if (!parseStreamId(sid, &key, &rawKey, &publish)) {
         LOG_WARN("SRT reject: bad streamid '%s'", sid.c_str());
         srt_close(s);
         return;
     }
-    if (auth_ && !auth_(rawKey, publish, &reason)) {
-        LOG_WARN("SRT %s denied: key=%s reason=%s", publish ? "publish" : "play",
-                 key.c_str(), reason.c_str());
-        srt_close(s);
+    if (!auth_) {
+        setupSession(s, key, publish);
         return;
     }
+    // 异步鉴权：结果回来前连接保持未登记状态（libsrt 内部缓冲推流数据）
+    auto alive = alive_;
+    auth_(rawKey, publish, [this, alive, s, key, publish](bool ok, const std::string& why) {
+        if (!alive->load() || !running_.load()) {
+            srt_close(s);
+            return;
+        }
+        if (!ok) {
+            LOG_WARN("SRT %s denied: key=%s reason=%s", publish ? "publish" : "play",
+                     key.c_str(), why.c_str());
+            srt_close(s);
+            return;
+        }
+        setupSession(s, key, publish);
+    });
+}
 
+void SrtServer::setupSession(int s, const std::string& key, bool publish) {
     auto sess = std::make_shared<Session>();
     sess->sock = s;
     sess->publish = publish;

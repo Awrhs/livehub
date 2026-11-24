@@ -1,5 +1,7 @@
 #include "rtmp/MediaStream.hpp"
 
+#include "core/Logger.hpp"
+
 #include <algorithm>
 
 namespace streaming {
@@ -7,8 +9,32 @@ namespace streaming {
 MediaStream::MediaStream(std::string streamKey, std::string app)
     : streamKey_(std::move(streamKey)), app_(std::move(app)) {}
 
+void MediaStream::normalizeTimestamp(MediaPacket& pkt) {
+    int64_t ts = pkt.timestamp;
+    if (!tsInit_) {
+        tsInit_ = true;
+        lastOutTs_ = ts;
+        return;
+    }
+    int64_t out = ts + tsOffset_;
+    int64_t delta = out - lastOutTs_;
+    if (delta < -kTsBackwardTolerance || delta > kTsForwardJump) {
+        // 接在上一包之后约一帧（40ms）
+        tsOffset_ = lastOutTs_ + 40 - ts;
+        out = lastOutTs_ + 40;
+        uint64_t n = tsJumps_.fetch_add(1) + 1;
+        LOG_WARN("MediaStream %s: 时间戳跳变 %lld ms（第 %llu 次），已平移为连续时间线", streamKey_.c_str(),
+                 static_cast<long long>(delta), static_cast<unsigned long long>(n));
+    }
+    if (out < 0) out = 0;
+    // 内部用 64 位连续时间线；输出按 RTMP 规范取低 32 位（约 49.7 天回绕一次）
+    pkt.timestamp = static_cast<uint32_t>(out & 0xFFFFFFFFLL);
+    if (out > lastOutTs_) lastOutTs_ = out;
+}
+
 void MediaStream::onPacket(MediaPacket pkt) {
     std::lock_guard<std::mutex> dlk(dispatchMu_);
+    if (!pkt.isSequenceHeader) normalizeTimestamp(pkt);
     {
         std::lock_guard<std::mutex> lk(mu_);
         if (pkt.isSequenceHeader) {

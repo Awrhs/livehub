@@ -12,6 +12,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace streaming {
@@ -42,7 +43,9 @@ public:
     void stop();  // 排空队列后退出
 
     /// 打开文件（截断写）。返回文件句柄 id（>0）。
-    uint64_t open(const std::string& path, bool append = false);
+    /// discardIfIncomplete：写入不完整时关闭后删除文件（HLS 分片：宁缺勿错）；
+    /// 否则保留文件（长录像：保留已写部分）并以 success=false 回调。
+    uint64_t open(const std::string& path, bool append = false, bool discardIfIncomplete = false);
 
     /// 追加数据（内部拷贝）。线程安全。
     void append(uint64_t id, const uint8_t* data, size_t len);
@@ -54,6 +57,7 @@ public:
     void fsync(uint64_t id);
 
     /// 关闭文件；关闭完成后在 IO 线程触发 cb（字节数统计）。
+    /// 文件写入不完整（队列满丢弃或写盘失败）时删除文件并以 success=false 回调。
     void close(uint64_t id, CloseCallback cb = nullptr);
 
     /// 删除文件（排入队列执行，unlink）
@@ -71,6 +75,7 @@ private:
         std::string path;
         std::vector<uint8_t> data;
         bool appendMode = false;
+        bool discard = false;
         CloseCallback cb;
     };
 
@@ -94,8 +99,17 @@ private:
     struct OpenFile {
         int fd = -1;
         uint64_t written = 0;
+        std::string path;
+        bool failed = false;  // 写入失败（磁盘满等）：内容不完整
+        bool discard = false;
     };
     std::unordered_map<uint64_t, OpenFile> files_;
+
+    // 因队列满被丢弃过写入的文件：内容已不完整，后续写入一并丢弃，关闭时删除文件并回调失败。
+    // （原实现只丢弃单次写入，HLS 分片中间缺一段数据仍被发布，播放器解码出错）
+    std::mutex damagedMu_;
+    std::unordered_set<uint64_t> damaged_;
+    bool isDamaged(uint64_t id);
 };
 
 }  // namespace streaming

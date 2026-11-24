@@ -112,7 +112,7 @@ void Segmenter::newSegment(int64_t boundaryPts, bool discontinuity) {
     ++sequence_;
     std::string path = segmentPath(sequence_);
     if (asyncWriter_) {
-        currentAsyncId_ = asyncWriter_->open(path, /*append=*/false);
+        currentAsyncId_ = asyncWriter_->open(path, /*append=*/false, /*discardIfIncomplete=*/true);
         segmentOpen_ = currentAsyncId_ != 0;
     } else {
         currentFile_.open(path, std::ios::binary | std::ios::trunc);
@@ -134,13 +134,15 @@ void Segmenter::newSegment(int64_t boundaryPts, bool discontinuity) {
 void Segmenter::publishSegment(const std::shared_ptr<State>& st,
                                const std::string& dir, uint64_t seq,
                                double duration, int64_t wallUs, bool valid,
-                               bool endList, const std::string& streamName) {
+                               bool endList, const std::string& streamName, bool damaged) {
     std::vector<uint64_t> toDelete;
     SegmentCompleteCallback cb;
     {
         std::lock_guard<std::mutex> lk(st->mu);
         if (st->cleanup || !valid) {
             toDelete.push_back(seq);  // 已析构或空分片：直接删除
+            // 分片因写盘不完整被丢弃：时间线出现缺口，下一分片标记 discontinuity
+            if (damaged && !st->cleanup) st->playlist.setDiscontinuity();
         } else {
             // URI 相对 /live/<stream>.m3u8：<stream>/<seq>.ts
             st->playlist.addSegment(seq, duration, streamName + "/" + segName(seq),
@@ -182,8 +184,9 @@ void Segmenter::closeCurrentSegment(int64_t endPts, bool endList) {
         currentAsyncId_ = 0;
         // 写盘线程完成 close 后才发布：保证播放器拿到的分片是完整文件
         asyncWriter_->close(id, [st, dir, seq, duration, wallUs, valid, endList,
-                                 name](bool, uint64_t) {
-            publishSegment(st, dir, seq, duration, wallUs, valid, endList, name);
+                                 name](bool ok, uint64_t) {
+            // 写入不完整的分片不进入播放列表
+            publishSegment(st, dir, seq, duration, wallUs, valid && ok, endList, name, valid && !ok);
         });
         return;
     }

@@ -101,6 +101,19 @@ void HttpServer::handleRequest(const std::shared_ptr<TcpConnection>& conn,
     // 默认 JSON 头
     bool routed = router_.dispatch(req, resp);
 
+    // 延迟响应：结果由处理器稍后发送
+    if (routed && resp.isDeferred()) {
+        finishLog();
+        resp.deferredCallback()(conn);
+        return;
+    }
+
+    sendResponse(conn, resp, routed);
+    finishLog();
+}
+
+void HttpServer::sendResponse(const std::shared_ptr<TcpConnection>& conn, HttpResponse& resp,
+                              bool routed) {
     // 序列化头部到局部 Buffer（见上方注释，不能用 conn->outputBuffer()）
     Buffer out;
     resp.appendToBuffer(&out);
@@ -135,12 +148,9 @@ void HttpServer::handleRequest(const std::shared_ptr<TcpConnection>& conn,
 
     // 流式响应：把连接交给处理器持续推送（HTTP-FLV 等）
     if (routed && resp.isStreaming() && resp.streamCallback()) {
-        finishLog();
         resp.streamCallback()(conn);
         return;
     }
-
-    finishLog();
 
     // 短连接：发完关闭
     if (resp.closeConnection()) {

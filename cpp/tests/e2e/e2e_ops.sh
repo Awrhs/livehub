@@ -109,6 +109,38 @@ during=$(first_frame_ms)
 wait "$SLOW" && pass "慢 webhook 放行后推流成功" || fail "慢 webhook 放行后推流失败"
 kill "$OK2" 2>/dev/null; wait "$OK2" 2>/dev/null
 
+echo "== HTTP-FLV / WS-FLV 拉流的 on_play 异步鉴权（单 IO 线程）"
+push ok3 40 &
+OK3=$!
+sleep 4
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "http://127.0.0.1:$HTTP/live/ok3.flv?denyme=1")
+[ "$code" = "403" ] && pass "on_play 返回 code=1 时 HTTP-FLV 拉流被拒绝（403）" || fail "on_play 拒绝时 HTTP-FLV 返回 $code"
+grep '/hook/play' "$WORK/hooks.log" | grep ok3 | grep -q denyme && pass "HTTP-FLV 的 on_play 携带查询参数" || fail "HTTP-FLV on_play 未携带 param"
+ttfb_ms() {  # HTTP-FLV 首字节耗时
+    local t
+    t=$(curl -s -o /dev/null --max-time 6 -w '%{time_starttransfer}' "http://127.0.0.1:$HTTP/live/ok3.flv?ok=$1" 2>/dev/null || true)
+    awk -v t="${t:-9}" 'BEGIN{printf "%d", t*1000}'
+}
+base=$(ttfb_ms base)
+# 慢 on_play（回调延迟 4s）进行期间，同一 IO 线程上的其它拉流请求应不受影响
+curl -s -o "$WORK/slowplay.flv" --max-time 9 "http://127.0.0.1:$HTTP/live/ok3.flv?slowme=1" &
+SLOWPLAY=$!
+sleep 0.5
+during=$(ttfb_ms during)
+[ "$during" -lt $((base + 1000)) ] \
+    && pass "慢 on_play 等待期间同线程其它 HTTP-FLV 请求正常（首字节 ${during}ms，基线 ${base}ms）" \
+    || fail "慢 on_play 阻塞了 IO 线程（首字节 ${during}ms，基线 ${base}ms）"
+wait "$SLOWPLAY"
+[ "$(head -c 3 "$WORK/slowplay.flv")" = "FLV" ] && pass "慢 on_play 放行后 HTTP-FLV 正常推送" || fail "慢 on_play 放行后无 FLV 数据"
+# WS-FLV：拒绝时返回 403
+ws=$(curl -s -i --max-time 6 -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" \
+    -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" "http://127.0.0.1:$HTTP/live/ok3.flv?denyme=1" | head -1)
+echo "$ws" | grep -q 403 && pass "on_play 拒绝时 WS-FLV 返回 403" || fail "WS-FLV 拒绝返回: $ws"
+ws=$(curl -s -i --max-time 3 -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" \
+    -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" "http://127.0.0.1:$HTTP/live/ok3.flv" | head -1)
+echo "$ws" | grep -q 101 && pass "on_play 放行时 WS-FLV 握手成功（101）" || fail "WS-FLV 放行返回: $ws"
+kill "$OK3" 2>/dev/null; wait "$OK3" 2>/dev/null
+
 echo "== 限流（/api/ 每分钟 20 次）"
 codes=""
 for i in $(seq 1 40); do

@@ -117,6 +117,16 @@ public:
     bool isStreaming() const { return isStreaming_; }
     const StreamCallback& streamCallback() const { return streamCallback_; }
 
+    /// 延迟响应：处理器需要异步决定结果（如等待 webhook 鉴权）时设置。
+    /// HttpServer 此时不发送任何内容，把连接交给回调；回调稍后在连接所属
+    /// IO 线程用 HttpServer::sendResponse 发出完整响应。
+    void setDeferred(StreamCallback cb) {
+        deferredCallback_ = std::move(cb);
+        closeConnection_ = false;
+    }
+    bool isDeferred() const { return static_cast<bool>(deferredCallback_); }
+    const StreamCallback& deferredCallback() const { return deferredCallback_; }
+
     /// 把响应头部序列化到 buffer（body 字符串也一起）
     void appendToBuffer(Buffer* output) const;
 
@@ -147,6 +157,7 @@ private:
     // 流式响应
     bool isStreaming_ = false;
     StreamCallback streamCallback_;
+    StreamCallback deferredCallback_;
 };
 
 }  // namespace streaming

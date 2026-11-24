@@ -35,6 +35,11 @@ using Middleware =
  */
 class HttpServer : NonCopyable {
 public:
+    /// 发送完整响应（头部、字符串/文件 body、流式回调、按需关闭）。
+    /// 必须在连接所属 IO 线程调用；延迟响应（HttpResponse::setDeferred）用它补发结果。
+    static void sendResponse(const std::shared_ptr<TcpConnection>& conn, HttpResponse& resp,
+                             bool routed = true);
+
     HttpServer(EventLoop* loop, uint16_t port,
                const std::string& ip = "0.0.0.0")
         : server_(loop, port, ip) {

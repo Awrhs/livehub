@@ -100,7 +100,7 @@ private:
     static void publishSegment(const std::shared_ptr<State>& st,
                                const std::string& dir, uint64_t seq,
                                double duration, int64_t wallUs, bool valid,
-                               bool endList, const std::string& streamName);
+                               bool endList, const std::string& streamName, bool damaged = false);
 
     std::string outputDir_;
     std::string streamName_;

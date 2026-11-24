@@ -1,4 +1,6 @@
 #include "hls/HlsHttpHandler.hpp"
+#include "net/EventLoop.hpp"
+#include "net/TcpConnection.hpp"
 #include "hls/HlsManager.hpp"
 #include "hls/HlsSource.hpp"
 #include "cache/StreamCache.hpp"
@@ -142,6 +144,36 @@ void HlsHttpHandler::registerRoutes(HttpServer& server) {
                     resp.setBody("{\"error\":\"bad stream name\"}");
                     return;
                 }
+                if (asyncPlayAuth_ && flvResolver_) {
+                    // 异步鉴权：等待期间不阻塞 IO 线程（原实现同步等待 webhook，
+                    // 一个慢回调会卡住该线程上的全部连接）
+                    std::string raw = req.query().empty() ? key : key + "?" + req.query();
+                    std::string host = req.header("Host");
+                    auto auth = asyncPlayAuth_;
+                    auto resolver = flvResolver_;
+                    resp.setDeferred([auth, resolver, raw, host, key](const std::shared_ptr<TcpConnection>& conn) {
+                        std::weak_ptr<TcpConnection> wc = conn;
+                        auth(host, raw, [wc, resolver, key](bool ok, const std::string& reason) {
+                            auto c = wc.lock();
+                            if (!c) return;
+                            c->getLoop()->runInLoop([wc, resolver, key, ok, reason] {
+                                auto c2 = wc.lock();
+                                if (!c2 || !c2->connected()) return;
+                                HttpResponse r(true);
+                                if (ok) {
+                                    HttpFlvHandler::serve(key, r, resolver);
+                                } else {
+                                    r.setStatusCode(HttpStatusCode::k403Forbidden);
+                                    r.setContentType("application/json");
+                                    r.setBody("{\"error\":\"" + (reason.empty() ? std::string("forbidden") : reason) + "\"}");
+                                    r.setCloseConnection(true);
+                                }
+                                HttpServer::sendResponse(c2, r);
+                            });
+                        });
+                    });
+                    return;
+                }
                 if (!checkAuth(req, key, false, resp)) return;
                 serveFlv(key, resp);
                 return;
@@ -191,6 +223,7 @@ void HlsHttpHandler::registerRoutes(HttpServer& server) {
                     resp.setStatusCode(HttpStatusCode::k200Ok);
                     resp.setContentType("video/MP2T");
                     resp.addHeader("Access-Control-Allow-Origin", "*");
+                    resp.addHeader("Cache-Control", "public, max-age=60");  // 分片内容不变，可短期缓存（CDN 友好）
                     resp.setBody(*cached);
                     return;
                 }
@@ -213,6 +246,7 @@ void HlsHttpHandler::registerRoutes(HttpServer& server) {
 
             resp.setContentType("video/MP2T");
             resp.addHeader("Access-Control-Allow-Origin", "*");
+            resp.addHeader("Cache-Control", "public, max-age=60");
 
             // Range 支持 -> 206
             std::string rangeHeader = req.header("Range");

@@ -27,6 +27,8 @@ add_executable(unit_tests
     test_system_stats.cpp
     test_transcode_tasks.cpp
     test_redis_protocol.cpp
+    test_media_stream.cpp
+    test_async_writer.cpp
 )
 target_link_libraries(unit_tests PRIVATE streaming_core)
 target_include_directories(unit_tests PRIVATE ${CMAKE_SOURCE_DIR}/include)

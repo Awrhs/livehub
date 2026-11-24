@@ -44,6 +44,13 @@ public:
                                         bool hlsPoll, std::string* reason)>;
     void setPlayAuth(PlayAuth a) { playAuth_ = std::move(a); }
 
+    /// HTTP-FLV 异步播放鉴权（含 on_play webhook）：结果经 done 回调（可在任意线程），
+    /// 期间不占用 IO 线程。设置后 .flv 请求使用它替代 PlayAuth。
+    /// rawKey 为带查询串的流名（stream?token=...）。
+    using AsyncPlayAuth = std::function<void(const std::string& host, const std::string& rawKey,
+                                             std::function<void(bool ok, const std::string& reason)> done)>;
+    void setAsyncPlayAuth(AsyncPlayAuth a) { asyncPlayAuth_ = std::move(a); }
+
     /// 本地无 HLS 源时的按需回调（边缘节点：回源拉流并建立 HLS 桥接）
     using OnDemand = std::function<void(const std::string& key)>;
     void setOnDemand(OnDemand f) { onDemand_ = std::move(f); }
@@ -59,6 +66,7 @@ private:
     StreamCache* cache_;
     StreamResolver flvResolver_;
     PlayAuth playAuth_;
+    AsyncPlayAuth asyncPlayAuth_;
     OnDemand onDemand_;
     bool checkAuth(const HttpRequest& req, const std::string& key, bool hlsPoll,
                    HttpResponse& resp);

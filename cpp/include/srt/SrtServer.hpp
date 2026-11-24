@@ -42,9 +42,10 @@ public:
     /// 推流结束
     using UnpublishHandler =
         std::function<void(const std::string& key, const std::shared_ptr<MediaStream>& ms)>;
-    /// 鉴权：rawKey 可带 ?token=；返回 false 拒绝
-    using AuthHandler = std::function<bool(const std::string& rawKey, bool publish,
-                                           std::string* reason)>;
+    /// 异步鉴权：rawKey 可带 ?token=；结果经 done 回调（可在任意线程）。
+    /// 原实现在 SRT 线程同步等待 webhook，慢回调会卡住全部 SRT 会话。
+    using AuthHandler = std::function<void(const std::string& rawKey, bool publish,
+                                           std::function<void(bool ok, const std::string& reason)> done)>;
 
     SrtServer(EventLoop* loop, uint16_t port, const std::string& ip = "0.0.0.0");
     ~SrtServer();
@@ -69,7 +70,10 @@ public:
 private:
     void run();
     void acceptOne();
+    /// 鉴权通过后建立会话（可在任意线程调用）
+    void setupSession(int sock, const std::string& key, bool publish);
     void closeSession(int sock);
+    std::shared_ptr<std::atomic<bool>> alive_ = std::make_shared<std::atomic<bool>>(true);
 
     [[maybe_unused]] uint16_t port_;
     std::string ip_;

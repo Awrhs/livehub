@@ -4,6 +4,7 @@
 #include "api/HttpResponse.hpp"
 #include "api/HttpServer.hpp"
 #include "core/Logger.hpp"
+#include "net/EventLoop.hpp"
 #include "net/TcpConnection.hpp"
 #include "protocol/FlvMuxer.hpp"
 #include "rtmp/FlowControl.hpp"
@@ -129,20 +130,50 @@ void WsFlvHandler::attach(HttpServer& server) {
                     return true;
                 }
             }
+            if (asyncPlayAuth_) {
+                // 等待鉴权期间忽略客户端数据（握手完成前客户端不应发送 WebSocket 帧）
+                conn->setMessageCallback([](const std::shared_ptr<TcpConnection>&, Buffer* b, Timestamp) {
+                    b->retrieveAll();
+                });
+                std::string raw = req.query().empty() ? key : key + "?" + req.query();
+                std::weak_ptr<TcpConnection> wc = conn;
+                asyncPlayAuth_(req.header("Host"), raw, [this, wc, key, wsKey](bool ok, const std::string&) {
+                    auto c = wc.lock();
+                    if (!c) return;
+                    c->getLoop()->runInLoop([this, wc, key, wsKey, ok] {
+                        auto c2 = wc.lock();
+                        if (!c2 || !c2->connected()) return;
+                        if (!ok) {
+                            c2->send("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n");
+                            c2->shutdown();
+                            return;
+                        }
+                        accept(c2, key, wsKey);
+                    });
+                });
+                return true;
+            }
+            accept(conn, key, wsKey);
+            return true;
+        });
+}
+
+void WsFlvHandler::accept(const std::shared_ptr<TcpConnection>& conn, const std::string& key,
+                          const std::string& wsKey) {
             auto ms = resolver_ ? resolver_(key) : nullptr;
             if (!ms) {
                 conn->send("HTTP/1.1 404 Not Found\r\n\r\n");
                 conn->shutdown();
-                return true;
+                return;
             }
 
-            std::string accept = WebSocket::acceptKey(wsKey);
+            std::string acceptValue = WebSocket::acceptKey(wsKey);
             std::string resp =
                 "HTTP/1.1 101 Switching Protocols\r\n"
                 "Upgrade: websocket\r\n"
                 "Connection: Upgrade\r\n"
                 "Sec-WebSocket-Accept: " +
-                accept +
+                acceptValue +
                 "\r\n\r\n";
             conn->send(resp);
 
@@ -174,8 +205,6 @@ void WsFlvHandler::attach(HttpServer& server) {
                         });
                     if (!ok) c->shutdown();
                 });
-            return true;
-        });
 }
 
 }  // namespace streaming

@@ -100,6 +100,12 @@ public:
     const std::string& vhost() const { return vhost_; }
     void setVhost(std::string v) { vhost_ = std::move(v); }
     bool hasPublisher() const { return hasPublisher_.load(); }
+    /// 已修正的时间戳跳变次数
+    uint64_t timestampJumps() const { return tsJumps_.load(); }
+    /// 回退超过该值（毫秒）视为跳变（音视频交织的正常抖动远小于此）
+    static constexpr int64_t kTsBackwardTolerance = 2000;
+    /// 前跳超过该值（毫秒）视为跳变
+    static constexpr int64_t kTsForwardJump = 10000;
     void setHasPublisher(bool on) { hasPublisher_.store(on); }
 
     /// 推流端关闭器：由接入方（RTMP/SRT）在推流开始时设置；
@@ -146,6 +152,14 @@ private:
     mutable std::mutex subMu_;
     std::vector<std::pair<SubscriberId, PacketCallback>> subscribers_;
     SubscriberId nextSubId_ = 1;
+
+    // 时间戳单调化：推流端时间戳回退或大幅跳变（编码器重启、32 位回绕、异常源）时，
+    // 把后续时间戳平移到紧接上一包之后，保证 FLV/HLS/录像/WebRTC 下游看到连续的时间线
+    void normalizeTimestamp(MediaPacket& pkt);
+    bool tsInit_ = false;
+    int64_t tsOffset_ = 0;
+    int64_t lastOutTs_ = 0;
+    std::atomic<uint64_t> tsJumps_{0};
 
     std::atomic<bool> hasPublisher_{false};
     std::mutex closerMu_;

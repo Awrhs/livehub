@@ -38,9 +38,19 @@ public:
                                         std::string* reason)>;
     void setPlayAuth(PlayAuth a) { playAuth_ = std::move(a); }
 
+    /// 异步播放鉴权（含 on_play webhook）：设置后替代 PlayAuth，等待期间不阻塞 IO 线程
+    using AsyncPlayAuth = std::function<void(const std::string& host, const std::string& rawKey,
+                                             std::function<void(bool ok, const std::string& reason)> done)>;
+    void setAsyncPlayAuth(AsyncPlayAuth a) { asyncPlayAuth_ = std::move(a); }
+
 private:
+    /// 鉴权通过后：完成握手并开始推送（在连接所属 IO 线程调用）
+    void accept(const std::shared_ptr<TcpConnection>& conn, const std::string& key,
+                const std::string& wsKey);
+
     StreamResolver resolver_;
     PlayAuth playAuth_;
+    AsyncPlayAuth asyncPlayAuth_;
 };
 
 }  // namespace streaming

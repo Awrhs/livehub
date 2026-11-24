@@ -31,13 +31,14 @@ void AsyncFileWriter::stop() {
     if (worker_.joinable()) worker_.join();
 }
 
-uint64_t AsyncFileWriter::open(const std::string& path, bool append) {
+uint64_t AsyncFileWriter::open(const std::string& path, bool append, bool discardIfIncomplete) {
     uint64_t id = nextId_.fetch_add(1);
     Op op;
     op.type = OpType::kOpen;
     op.id = id;
     op.path = path;
     op.appendMode = append;
+    op.discard = discardIfIncomplete;
     {
         std::lock_guard<std::mutex> lk(mu_);
         queue_.push_back(std::move(op));
@@ -49,7 +50,15 @@ uint64_t AsyncFileWriter::open(const std::string& path, bool append) {
 void AsyncFileWriter::append(uint64_t id, const uint8_t* data, size_t len) {
     if (len == 0) return;
     // 队列上限：磁盘跟不上时丢弃写入（宁可损坏分片也不能无界占用内存导致 OOM）
+    if (isDamaged(id)) {  // 已不完整的文件：后续写入没有意义
+        droppedBytes_.fetch_add(len);
+        return;
+    }
     if (maxQueueBytes_ > 0 && pendingBytes_.load() + len > maxQueueBytes_) {
+        {
+            std::lock_guard<std::mutex> lk(damagedMu_);
+            damaged_.insert(id);
+        }
         uint64_t n = droppedBytes_.fetch_add(len) + len;
         if (n == len || (n >> 24) != ((n - len) >> 24))  // 首次及每 16MB 告警一次
             LOG_WARN("AsyncFileWriter queue full (%zu bytes), dropped %llu bytes so far",
@@ -102,6 +111,11 @@ void AsyncFileWriter::unlink(const std::string& path) {
     cv_.notify_one();
 }
 
+bool AsyncFileWriter::isDamaged(uint64_t id) {
+    std::lock_guard<std::mutex> lk(damagedMu_);
+    return damaged_.count(id) > 0;
+}
+
 void AsyncFileWriter::run() {
     for (;;) {
         Op op;
@@ -132,9 +146,9 @@ void AsyncFileWriter::apply(Op& op) {
             if (fd < 0) {
                 LOG_ERROR("AsyncFileWriter open %s failed: %s",
                           op.path.c_str(), strerror(errno));
-                files_[op.id] = OpenFile{-1, 0};
+                files_[op.id] = OpenFile{-1, 0, op.path, true, op.discard};
             } else {
-                files_[op.id] = OpenFile{fd, 0};
+                files_[op.id] = OpenFile{fd, 0, op.path, false, op.discard};
             }
             break;
         }
@@ -159,6 +173,7 @@ void AsyncFileWriter::apply(Op& op) {
                 it->second.written += static_cast<uint64_t>(n);
             }
             if (ok) totalWritten_.fetch_add(op.data.size());
+            else it->second.failed = true;
             break;
         }
         case OpType::kFsync: {
@@ -172,10 +187,24 @@ void AsyncFileWriter::apply(Op& op) {
             auto it = files_.find(op.id);
             bool ok = false;
             uint64_t written = 0;
+            bool damaged = false;
+            {
+                std::lock_guard<std::mutex> lk(damagedMu_);
+                damaged = damaged_.erase(op.id) > 0;
+            }
             if (it != files_.end()) {
                 written = it->second.written;
                 if (it->second.fd >= 0) {
                     ok = (::close(it->second.fd) == 0);
+                }
+                if (damaged || it->second.failed) {
+                    ok = false;
+                    if (it->second.discard) {
+                        // 内容不完整：删除，避免被当作完整文件使用
+                        ::unlink(it->second.path.c_str());
+                    }
+                    LOG_WARN("AsyncFileWriter: %s 写入不完整（%s）%s", it->second.path.c_str(),
+                             damaged ? "写盘队列满" : "写盘失败", it->second.discard ? "，已删除" : "");
                 }
                 files_.erase(it);
             }
